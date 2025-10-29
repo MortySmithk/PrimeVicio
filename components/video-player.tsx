@@ -1,9 +1,8 @@
 // components/video-player.tsx
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
-// MODIFIED: Removed 'Radio' icon as it's no longer needed
-import { Play, Pause, RotateCcw, X, ChevronLeft, ChevronRight, Check, AlertTriangle, Volume2, VolumeX, Settings, Maximize, Minimize, PictureInPicture } from 'lucide-react' // Import icons
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { Play, Pause, RotateCcw, X, ChevronLeft, ChevronRight, Check, AlertTriangle, Volume2, VolumeX, Settings, Maximize, Minimize, PictureInPicture } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
@@ -13,17 +12,17 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import Image from 'next/image';
+import type Hls from 'hls.js'
 
 type StreamSource = {
   url: string;
-  name: string; // Ex: "HD", "1080p"
+  name: string;
   thumbnailUrl?: string;
 }
 
 type VideoPlayerProps = {
   sources: StreamSource[]
   title: string
-  // downloadUrl?: string // REMOVIDO
   onClose?: () => void
   rememberPositionKey?: string
   rememberPosition?: boolean
@@ -32,7 +31,7 @@ type VideoPlayerProps = {
   backdropPath?: string | null;
 }
 
-// --- MODIFICAÇÃO: Componente de Overlay inicial ---
+// --- Componente de Overlay inicial ---
 const PlayerOverlay = ({ onClick, title, backdropPath }: { onClick: () => void; title: string; backdropPath: string | null }) => {
   const [isHovering, setIsHovering] = useState(false);
   const imageUrl = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : null;
@@ -40,7 +39,7 @@ const PlayerOverlay = ({ onClick, title, backdropPath }: { onClick: () => void; 
   return (
     <div
       className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 cursor-pointer"
-      onClick={onClick} // Usa a prop onClick passada
+      onClick={onClick}
     >
       {imageUrl && (
          <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30 blur-sm z-[-1]" draggable="false" />
@@ -48,13 +47,11 @@ const PlayerOverlay = ({ onClick, title, backdropPath }: { onClick: () => void; 
       <img
         src={isHovering ? "https://i.ibb.co/b5GFzpMs/bot-o-de-play-central-aceso.png" : "https://i.ibb.co/8qbZwTV/bot-o-de-play-central.png"}
         alt="Assistir"
-        className="h-16 w-16 object-contain pointer-events-auto" // Mantém pointer-events-auto para a imagem
+        className="h-16 w-16 object-contain pointer-events-auto"
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         draggable="false"
       />
-      {/* Adicionado: Remove o texto "Clique para assistir" se quiser */}
-      {/* <p className="text-sm text-zinc-400 mt-4">Clique para assistir</p> */}
     </div>
   );
 };
@@ -74,7 +71,6 @@ export default function VideoPlayer({
   const thumbnailVideoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null)
   const progressWrapRef = useRef<HTMLDivElement>(null)
-  // MANTIDO: Canvas ref para o thumbnail preview
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isSandboxed, setIsSandboxed] = useState(false);
@@ -82,7 +78,6 @@ export default function VideoPlayer({
   const [checking, setChecking] = useState(true);
 
   const [isPlayerActive, setIsPlayerActive] = useState(false);
-  // --- ADICIONADO: Estado para contar os cliques no overlay ---
   const [overlayClickCount, setOverlayClickCount] = useState(0);
 
   const [currentSource, setCurrentSource] = useState(sources[0]);
@@ -109,14 +104,11 @@ export default function VideoPlayer({
 
   const [isAutoplayEnabled, setIsAutoplayEnabled] = useState(true)
   const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(false)
-  // CORREÇÃO: Countdown não é mais necessário aqui, será gerenciado na função
-  // const [countdown, setCountdown] = useState(5)
   const [endingTriggered, setEndingTriggered] = useState(false);
 
   const [settingsMenu, setSettingsMenu] = useState<'main' | 'quality' | 'playbackRate'>('main');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // CORREÇÃO: Controle da visibilidade do slider de volume
   const [isVolumeSliderVisible, setIsVolumeSliderVisible] = useState(false);
   const [isHoveringVolumeArea, setIsHoveringVolumeArea] = useState(false);
 
@@ -125,7 +117,6 @@ export default function VideoPlayer({
   const positionKey = `video-pos:${rememberPositionKey || sources[0].url}`
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  // CORREÇÃO: Timeout para esconder o slider de volume
   const volumeSliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTapRef = useRef<{ time: number, side: 'left' | 'right' | 'center' }>({ time: 0, side: 'center' });
   const holdTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -133,14 +124,82 @@ export default function VideoPlayer({
   const spacebarDownTimer = useRef<NodeJS.Timeout | null>(null);
   const isSpeedingUpRef = useRef(false);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hlsInstanceRef = useRef<Hls | null>(null);
 
   const adUrl = "https://otieu.com/4/10070814";
   const adInterval = 2 * 60 * 1000; // 2 minutos
-  // MANTIDO o rastreamento do último anúncio para o Fullscreen/Exit Fullscreen
   const lastAdTimeRef = useRef<number | null>(null);
-  // ADICIONADO: Variável para rastrear o ad do fullscreen
   const lastFullscreenAdTimeRef = useRef<number | null>(null);
 
+  const isEmbed = useMemo(() => {
+    if (!currentSource?.url) return false;
+
+    const embedHosts = [
+      'filemoon.to',
+      'filemoon.sx',
+      'dood.la',
+      'dood.so',
+      'dood.sh',
+      'streamtape.com',
+      'streamtape.to',
+      'voe.sx',
+      'vidmoly.to',
+    ];
+    
+    const directVideoExtensions = ['.mp4', '.m3u8', '.webm', '.ogg'];
+
+    try {
+      if (!currentSource.url.startsWith('http')) {
+        return false;
+      }
+
+      const url = new URL(currentSource.url);
+      const hostname = url.hostname.replace('www.', '');
+      const pathname = url.pathname.toLowerCase();
+
+      if (embedHosts.some(host => hostname.endsWith(host))) {
+        console.log(`[Player Check] Host ${hostname} está na lista de embeds. Usando iframe.`);
+        return true;
+      }
+
+      for (const ext of directVideoExtensions) {
+        if (pathname.endsWith(ext) || url.search.includes(ext)) {
+          console.log(`[Player Check] Link direto ${ext} detectado. Usando <video>.`);
+          return false;
+        }
+      }
+      
+      console.log(`[Player Check] Host não conhecido E sem extensão de vídeo. Assumindo embed (iframe).`);
+      return true;
+
+    } catch (e) {
+      console.error("[Player Check] URL inválida:", e);
+      return false;
+    }
+  }, [currentSource]);
+
+  const activatePlayer = useCallback(() => {
+    console.log("Ativando o player...");
+    setIsPlayerActive(true);
+
+    if (typeof window.open === 'undefined' || !window.open) {
+        console.error("Ambiente restrito (sandbox) detectado ao tentar ativar player.");
+        setIsSandboxed(true);
+        setIsPlayerActive(false);
+        setChecking(false);
+    }
+  }, []); // Adicionado useCallback
+
+  // --- MODIFICAÇÃO 1: Ativa o player imediatamente se for um embed ---
+  useEffect(() => {
+    // Se for um embed (iframe), ativa o player imediatamente
+    // para pular o overlay customizado de play.
+    if (isEmbed) {
+      activatePlayer();
+    }
+    // Se não for embed, ele vai esperar o clique no overlay (handleOverlayClick)
+  }, [isEmbed, activatePlayer]); // Executa apenas quando 'isEmbed' for determinado
+  // -----------------------------------------------------------------
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -171,16 +230,14 @@ export default function VideoPlayer({
     setTimeout(adBlockerCheck, 100);
   }, []);
 
-  // Função para abrir o anúncio (mantida)
   const triggerAd = useCallback(() => {
     const adWindow = window.open(adUrl, "_blank");
     if (!adWindow || adWindow.closed || typeof adWindow.closed === 'undefined') {
-        return false; // Falha ao abrir (provavelmente bloqueador de pop-up)
+        return false;
     }
-    return true; // Sucesso
+    return true;
   }, [adUrl]);
 
-  // ADICIONADO: Nova função para anúncio após o primeiro play/fullscreen (mantida)
   const triggerAdAndPause = useCallback(() => {
     const adWindow = window.open(adUrl, "_blank");
     const adWasSuccessful = !!adWindow && !adWindow.closed && typeof adWindow.closed === 'boolean';
@@ -194,33 +251,25 @@ export default function VideoPlayer({
     return adWasSuccessful;
   }, [adUrl]);
 
-  // --- NOVA FUNÇÃO: Lida com cliques no overlay inicial ---
   const handleOverlayClick = () => {
-    // Primeiro clique
     if (overlayClickCount === 0) {
       console.log("Primeiro clique no overlay, abrindo anúncio 1...");
       const ad1Success = triggerAd();
-      setOverlayClickCount(1); // Incrementa o contador
+      setOverlayClickCount(1);
       if (!ad1Success) {
           console.warn("Anúncio 1 pode ter sido bloqueado.");
-          // Opcional: Mostrar uma mensagem ao usuário sobre o bloqueador
       }
     }
-    // Segundo clique
     else if (overlayClickCount === 1) {
       console.log("Segundo clique no overlay, abrindo anúncio 2 e iniciando player...");
       const ad2Success = triggerAd();
-      setOverlayClickCount(2); // Incrementa novamente (para evitar reabrir anúncios)
+      setOverlayClickCount(2);
 
       if (!ad2Success) {
          console.warn("Anúncio 2 pode ter sido bloqueado.");
-         // Opcional: Mostrar mensagem
       }
-
-      // Ativa o player APÓS o segundo clique, independentemente do sucesso do anúncio 2
       activatePlayer();
     }
-    // Cliques subsequentes (não devem ocorrer pois o overlay some)
     else {
         console.log("Overlay já clicado duas vezes, ativando player (caso não tenha ativado)...");
         if (!isPlayerActive) {
@@ -229,82 +278,124 @@ export default function VideoPlayer({
     }
   };
 
-  // --- RENOMEADO e MODIFICADO: Função para ATIVAR o player ---
-  const activatePlayer = () => {
-    console.log("Ativando o player...");
-    setIsPlayerActive(true); // Ativa a UI e começa a carregar o vídeo
-
-    // Checagem de sandbox pode permanecer aqui ou ser movida se necessário
-    if (typeof window.open === 'undefined' || !window.open) {
-        console.error("Ambiente restrito (sandbox) detectado ao tentar ativar player.");
-        setIsSandboxed(true);
-        setIsPlayerActive(false); // Desativa se estiver em sandbox
-        setChecking(false);
-    }
-  };
-
   const handlePlayerAreaClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Check if the click is on the play button overlay image
     if ((e.target as HTMLElement).tagName === 'IMG' && (e.target as HTMLElement).closest('.absolute.inset-0.z-20')) {
-        return; // Don't toggle play if the initial play button is clicked
+        return;
     }
     if ((e.target as HTMLElement).closest('[data-controls]')) return;
-
-    // A lógica de anúncio por intervalo foi removida daqui, deixando apenas o togglePlay
     togglePlay();
   };
 
-  // --- MODIFICAÇÃO: Lógica do useEffect que define o 'src' do vídeo ---
-  // Este useEffect agora SÓ depende de `currentSource` e `isPlayerActive`
   useEffect(() => {
     const video = videoRef.current;
-    // NÃO executa se o player não estiver ativo (após os 2 cliques)
-    if (!video || !currentSource?.url || !isPlayerActive) return;
+    
+    if (hlsInstanceRef.current) {
+        hlsInstanceRef.current.destroy();
+        hlsInstanceRef.current = null;
+    }
+    
+    if (!video || !currentSource?.url || !isPlayerActive || isEmbed) {
+      if (video && video.src) {
+        video.removeAttribute('src');
+        video.load();
+      }
+      return;
+    }
 
-    // ... (restante da lógica do useEffect para carregar source, restaurar tempo, etc.) ...
-     console.log(`[Player Effect] Player ATIVO. Definindo src: ${currentSource.url}.`);
-     const savedTime = video.currentTime > 1 && video.src !== currentSource.url ? video.currentTime : 0;
-     video.src = currentSource.url;
-     video.load();
+    console.log(`[Player Effect] Player ATIVO (Nativo). Definindo src: ${currentSource.url}.`);
+    const savedTime = video.currentTime > 1 && video.src !== currentSource.url ? video.currentTime : 0;
 
-     const handleCanPlayThrough = () => {
-       console.log("[Player Effect] Vídeo pronto para tocar.");
-       if (video && savedTime > 0 && video.currentTime < savedTime) { // Check video exists
-         console.log(`[Player Effect] Restaurando tempo para ${savedTime}`);
-         video.currentTime = savedTime;
-       }
-       // Tenta dar play automaticamente QUANDO o player for ativado
-       video?.play().catch(handleError); // A primeira interação do usuário (os 2 cliques) deve permitir o autoplay aqui
-     };
-     video.addEventListener('canplaythrough', handleCanPlayThrough, { once: true });
+    const handleCanPlay = () => {
+      console.log("[Player Effect] Vídeo pronto para tocar.");
+      if (video && savedTime > 0 && video.currentTime < savedTime) {
+        console.log(`[Player Effect] Restaurando tempo para ${savedTime}`);
+        video.currentTime = savedTime;
+      }
+      // Tenta dar play automaticamente (se for ativado por clique, vai funcionar)
+      video?.play().catch(handleError);
+    };
+    
+    video.addEventListener('canplay', handleCanPlay, { once: true });
 
-     setShowNextEpisodeOverlay(false);
-     if (countdownIntervalRef.current) {
-       clearInterval(countdownIntervalRef.current);
-     }
 
-     const thumbnailVideo = thumbnailVideoRef.current;
-     if(thumbnailVideo && currentSource.thumbnailUrl) {
-         thumbnailVideo.src = currentSource.thumbnailUrl;
-         thumbnailVideo.load();
-         thumbnailVideo.play().catch(e => console.warn("Thumbnail play failed", e));
-     }
+    if (currentSource.url.toLowerCase().includes('.m3u8')) {
+      const loadHls = async () => {
+        try {
+          const HlsModule = (await import('hls.js')).default;
+          if (HlsModule.isSupported()) {
+            console.log("[Player Effect] Carregando HLS.js...");
+            const hls = new HlsModule();
+            hlsInstanceRef.current = hls;
+            hls.loadSource(currentSource.url);
+            hls.attachMedia(video);
+            hls.on(HlsModule.Events.MANIFEST_PARSED, () => {
+               console.log("[Player Effect] HLS Manifest parsed.");
+            });
+            hls.on(HlsModule.Events.ERROR, (event, data) => {
+              console.error('Erro no HLS.js:', data);
+              if (data.fatal) {
+                switch (data.type) {
+                  case HlsModule.ErrorTypes.NETWORK_ERROR:
+                    console.error('Erro de rede fatal no HLS');
+                    setError("Erro de rede ao carregar o vídeo.");
+                    break;
+                  case HlsModule.ErrorTypes.MEDIA_ERROR:
+                    console.error('Erro de mídia fatal no HLS');
+                    setError("Erro de mídia ao carregar o vídeo.");
+                    break;
+                  default:
+                    setError("Não foi possível carregar o vídeo.");
+                    break;
+                }
+              }
+            });
+          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            console.log("[Player Effect] Usando suporte HLS nativo (Safari).");
+            video.src = currentSource.url;
+          } else {
+            setError("Formato HLS não suportado neste navegador.");
+          }
+        } catch (e) {
+            console.error("Falha ao carregar HLS.js", e);
+            setError("Erro ao carregar o player de vídeo.");
+        }
+      };
+      loadHls();
+    } else {
+      console.log("[Player Effect] Carregando MP4 nativo.");
+      video.src = currentSource.url;
+      video.load();
+    }
 
-     return () => {
-       if(video) {
-         video.removeEventListener('canplaythrough', handleCanPlayThrough); // Limpa o listener específico
-         video.removeAttribute('src');
-         video.load();
-       }
-       if(thumbnailVideo) {
-         thumbnailVideo.pause();
-         thumbnailVideo.removeAttribute('src');
-         thumbnailVideo.load();
-       }
-     };
-   // A dependência `handleError` pode ser adicionada se o linter reclamar, mas a lógica principal depende apenas da source e ativação.
-   }, [currentSource, isPlayerActive]); // <- Apenas estas dependências!
+    setShowNextEpisodeOverlay(false);
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+    }
 
+    const thumbnailVideo = thumbnailVideoRef.current;
+    if(thumbnailVideo && currentSource.thumbnailUrl) {
+        thumbnailVideo.src = currentSource.thumbnailUrl;
+        thumbnailVideo.load();
+        thumbnailVideo.play().catch(e => console.warn("Thumbnail play failed", e));
+    }
+
+    return () => {
+      if(video) {
+        video.removeEventListener('canplay', handleCanPlay);
+        video.removeAttribute('src');
+        video.load();
+      }
+      if(thumbnailVideo) {
+        thumbnailVideo.pause();
+        thumbnailVideo.removeAttribute('src');
+        thumbnailVideo.load();
+      }
+      if (hlsInstanceRef.current) {
+          hlsInstanceRef.current.destroy();
+          hlsInstanceRef.current = null;
+      }
+    };
+  }, [currentSource, isPlayerActive, isEmbed]);
 
   useEffect(() => {
     try {
@@ -333,7 +424,7 @@ export default function VideoPlayer({
   }, [positionKey, rememberPosition])
 
   useEffect(() => {
-    if (!rememberPosition || !isPlayerActive) return
+    if (!rememberPosition || !isPlayerActive || isEmbed) return
     const id = setInterval(() => {
       try {
         if (videoRef.current && videoRef.current.currentTime > 0) {
@@ -342,17 +433,16 @@ export default function VideoPlayer({
       } catch (e) { /* no-op */ }
     }, 1500)
     return () => clearInterval(id)
-  }, [positionKey, rememberPosition, isPlayerActive])
+  }, [positionKey, rememberPosition, isPlayerActive, isEmbed])
 
   useEffect(() => {
     setPipSupported(typeof document !== "undefined" && "pictureInPictureEnabled" in document)
   }, [])
 
   const hideControls = useCallback(() => {
-    // CORREÇÃO: Só esconde se o mouse não estiver sobre a área de volume
     if (!isHoveringVolumeArea) {
       setShowControls(false);
-      setIsVolumeSliderVisible(false); // Garante que o slider feche com os controles
+      setIsVolumeSliderVisible(false);
     }
   }, [isHoveringVolumeArea]);
 
@@ -361,19 +451,16 @@ export default function VideoPlayer({
       clearTimeout(controlsTimeoutRef.current);
     }
     setShowControls(true);
-    // CORREÇÃO: Define um novo timeout apenas se o vídeo estiver tocando
     if (isPlaying) {
         controlsTimeoutRef.current = setTimeout(hideControls, 3500);
     }
-  }, [hideControls, isPlaying]); // Adicionado isPlaying como dependência
+  }, [hideControls, isPlaying]);
 
   useEffect(() => {
-    if (!isPlayerActive) return;
+    if (!isPlayerActive || isEmbed) return;
     const container = containerRef.current;
     if (container) {
       container.addEventListener("mousemove", resetControlsTimeout);
-      // CORREÇÃO: Mouseleave é gerenciado agora pelo hideControls e isHoveringVolumeArea
-      // container.addEventListener("mouseleave", hideControls);
       container.addEventListener("touchstart", resetControlsTimeout, { passive: true });
     }
     resetControlsTimeout();
@@ -381,11 +468,10 @@ export default function VideoPlayer({
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
       if (container) {
         container.removeEventListener("mousemove", resetControlsTimeout);
-        // container.removeEventListener("mouseleave", hideControls);
         container.removeEventListener("touchstart", resetControlsTimeout);
       }
     };
-  }, [isPlayerActive, resetControlsTimeout]); // Removido hideControls das dependências
+  }, [isPlayerActive, isEmbed, resetControlsTimeout]);
 
   useEffect(() => {
     if (!isSettingsOpen) {
@@ -423,7 +509,6 @@ export default function VideoPlayer({
     if (!videoRef.current) return;
     const { currentTime, duration } = videoRef.current;
     setCurrentTime(currentTime);
-    // CORREÇÃO: Removida a lógica de trigger do próximo episódio baseada no tempo
     try {
       const buf = videoRef.current.buffered;
       if (buf && buf.length > 0) { setBufferedEnd(buf.end(buf.length - 1)); }
@@ -435,40 +520,34 @@ export default function VideoPlayer({
     setDuration(videoRef.current.duration || 0)
   }
 
-  // CORREÇÃO: Lógica do próximo episódio centralizada aqui
   const handleEnded = () => {
-    setIsPlaying(false); // Define como pausado ao terminar
+    setIsPlaying(false);
     if (!endingTriggered && isAutoplayEnabled && hasNextEpisode && onNextEpisode) {
       setEndingTriggered(true);
       setShowNextEpisodeOverlay(true);
-      // Inicia imediatamente o próximo episódio
       handlePlayNext();
     }
   };
 
   const handlePlayNext = useCallback(() => {
-    // CORREÇÃO: Não precisa mais limpar intervalo
-    setShowNextEpisodeOverlay(false); // Esconde o overlay (embora mal apareça)
-    onNextEpisode?.(); // Chama a função para carregar o próximo
+    setShowNextEpisodeOverlay(false);
+    onNextEpisode?.();
   }, [onNextEpisode]);
 
-  // CORREÇÃO: Função de cancelar não é mais necessária da mesma forma,
-  // mas pode ser mantida se houver um overlay de cancelamento futuro
   const handleCancelAutoplay = () => {
     setShowNextEpisodeOverlay(false);
-    setEndingTriggered(false); // Permite tentar de novo
+    setEndingTriggered(false);
   };
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
 
-    // CORREÇÃO: Se estiver no final e for dado play, reinicia
     if (v.ended) {
         v.currentTime = 0;
         v.play().catch(handleError);
-        setEndingTriggered(false); // Reseta o trigger do final
-        setShowNextEpisodeOverlay(false); // Esconde o overlay
+        setEndingTriggered(false);
+        setShowNextEpisodeOverlay(false);
         return;
     }
 
@@ -476,7 +555,7 @@ export default function VideoPlayer({
         const playPromise = v.play();
         if (playPromise !== undefined) {
             playPromise.then(() => {
-                resetControlsTimeout(); // Esconde controles após play
+                resetControlsTimeout();
             }).catch(error => {
                 if (error.name !== "AbortError") {
                     console.warn("Play interrupted or failed, ignoring:", error);
@@ -485,7 +564,7 @@ export default function VideoPlayer({
         }
     } else {
         v.pause();
-        if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); // Mantém controles visíveis ao pausar
+        if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     }
   }, [resetControlsTimeout]);
 
@@ -494,7 +573,7 @@ export default function VideoPlayer({
     if (!v) return
     v.currentTime = Math.min(Math.max(0, v.currentTime + amount), duration || v.duration || 0)
     setShowSeekHint({ dir: amount > 0 ? "fwd" : "back", by: Math.abs(amount) })
-    resetControlsTimeout(); // Show controls on seek
+    resetControlsTimeout();
     setTimeout(() => setShowSeekHint(null), 700)
   }, [duration, resetControlsTimeout])
 
@@ -503,7 +582,7 @@ export default function VideoPlayer({
     if (!v) return
     v.currentTime = value[0]
     setCurrentTime(value[0])
-    resetControlsTimeout(); // Show controls when user interacts with slider
+    resetControlsTimeout();
   }
 
   const toggleMute = useCallback(() => {
@@ -516,7 +595,7 @@ export default function VideoPlayer({
       v.volume = 0.5
       setVolume(0.5)
     }
-    resetControlsTimeout(); // Show controls on mute toggle
+    resetControlsTimeout();
   }, [resetControlsTimeout])
 
   const handleVolumeChange = (value: number[]) => {
@@ -527,65 +606,56 @@ export default function VideoPlayer({
     setVolume(newVolume)
     setIsMuted(newVolume === 0)
     try { localStorage.setItem(volumeKey, String(newVolume)) } catch { }
-    // CORREÇÃO: Não reseta o timeout geral, mas cancela o timeout de esconder o slider
     if (volumeSliderTimeoutRef.current) clearTimeout(volumeSliderTimeoutRef.current);
-    // Don't reset general controls timeout
-    // resetControlsTimeout();
   }
 
-  // CORREÇÃO: Lógica de hover da área de volume
   const handleVolumeAreaMouseEnter = () => {
     setIsHoveringVolumeArea(true);
     if (volumeSliderTimeoutRef.current) {
         clearTimeout(volumeSliderTimeoutRef.current);
     }
     setIsVolumeSliderVisible(true);
-    // Cancela o timeout de esconder controles gerais
     if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
-        controlsTimeoutRef.current = null; // Indica que foi cancelado
+        controlsTimeoutRef.current = null;
     }
   };
 
   const handleVolumeAreaMouseLeave = () => {
     setIsHoveringVolumeArea(false);
-    // Agenda o fechamento do slider de volume
     volumeSliderTimeoutRef.current = setTimeout(() => {
         setIsVolumeSliderVisible(false);
-    }, 200); // Delay para permitir mover para o slider
-    // Reinicia o timeout para esconder os controles gerais
+    }, 200);
     resetControlsTimeout();
   };
 
 
   const toggleFullscreen = useCallback(async () => {
+    if (isEmbed) {
+        console.warn("Fullscreen programático desativado para embeds.");
+        return;
+    }
+    
     const video = videoRef.current;
     if (!video) return;
 
     const isCurrentlyFullscreen = !!document.fullscreenElement;
 
     if (!isCurrentlyFullscreen) {
-        // Lógica: Ao entrar em fullscreen, abre o anúncio.
         const shouldTriggerAd = !lastFullscreenAdTimeRef.current || (Date.now() - lastFullscreenAdTimeRef.current) > adInterval;
-
         if (shouldTriggerAd) {
             const adWasSuccessful = triggerAdAndPause();
             if (!adWasSuccessful) {
-                // If ad fails here, it might be due to popup blocker AFTER initial interaction.
-                // We don't necessarily set sandboxed=true, maybe just log or alert.
                 console.warn("Popup ad might have been blocked on fullscreen attempt.");
-                // Optionally show a non-blocking notification to the user
             }
         }
     }
 
-    // Ação de Fullscreen nativa do navegador
     const container = containerRef.current;
     if (!container) return;
 
     try {
       if (!isCurrentlyFullscreen) {
-        // Entrar em Fullscreen
         if (video.webkitEnterFullscreen) {
             video.webkitEnterFullscreen();
         } else {
@@ -599,21 +669,19 @@ export default function VideoPlayer({
           console.warn("Falha ao travar a orientação de tela:", e);
         }
       } else {
-        // Sair do Fullscreen
         await document.exitFullscreen();
       }
     } catch (err) {
       console.error("Erro ao gerenciar fullscreen:", err);
     }
-    resetControlsTimeout(); // Show controls on fullscreen toggle
-  }, [adInterval, triggerAdAndPause, resetControlsTimeout]); // Dependências
+    resetControlsTimeout();
+  }, [adInterval, triggerAdAndPause, resetControlsTimeout, isEmbed]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
       const isCurrentlyFullscreen = !!document.fullscreenElement;
       setIsFullscreen(isCurrentlyFullscreen);
 
-      // Lógica: Ao sair do fullscreen, ativa o temporizador de anúncio se o vídeo estiver ativo
       if (!isCurrentlyFullscreen && isPlayerActive) {
         lastFullscreenAdTimeRef.current = Date.now();
       }
@@ -630,43 +698,37 @@ export default function VideoPlayer({
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, [isPlayerActive]); // Dependência
+  }, [isPlayerActive]);
 
   const changePlaybackRate = (rate: number) => {
     if (!videoRef.current) return
     videoRef.current.playbackRate = rate
     setPlaybackRate(rate)
     setSettingsMenu('main');
-    resetControlsTimeout(); // Show controls after changing speed
+    resetControlsTimeout();
   }
 
   const changeQuality = (source: StreamSource) => {
       if(currentSource.url !== source.url){
         const video = videoRef.current;
-        const wasPlaying = isPlaying; // Store if it was playing before change
-        const currentTime = video ? video.currentTime : 0; // Save current time
+        const wasPlaying = isPlaying;
+        const currentTime = video ? video.currentTime : 0;
 
-        // Update the source state FIRST
         setCurrentSource(source);
-
-        // Then, update the video element source AFTER state is set
-        if (video) {
-          video.src = source.url;
-          video.load(); // Important: Tell the browser to load the new source
-
-          // Re-attach event listener to play after load and restore time
-          video.addEventListener('canplaythrough', () => {
-              if (video) {
-                  video.currentTime = currentTime; // Restore time
-                  if (wasPlaying) {
-                      video.play().catch(handleError); // Play only if it was playing before
-                  }
-              }
-          }, { once: true });
+        
+        if(video && !isEmbed) {
+            video.addEventListener('canplay', () => {
+                if (video) {
+                    video.currentTime = currentTime;
+                    if (wasPlaying) {
+                        video.play().catch(handleError);
+                    }
+                }
+            }, { once: true });
         }
       }
       setSettingsMenu('main');
-      resetControlsTimeout(); // Show controls after changing quality
+      resetControlsTimeout();
   }
 
 
@@ -676,22 +738,23 @@ export default function VideoPlayer({
       try { localStorage.setItem(autoplayKey, JSON.stringify(newState)); } catch { }
       return newState;
     });
-    resetControlsTimeout(); // Keep controls visible
+    resetControlsTimeout();
   };
 
   const togglePip = useCallback(async () => {
+    if (isEmbed) return;
     const v = videoRef.current
     if (!v || !document.pictureInPictureEnabled) return
     try {
       if (document.pictureInPictureElement) { await (document as any).exitPictureInPicture() }
       else { await (v as any).requestPictureInPicture() }
     } catch (e) { console.error("Erro no PIP", e) }
-    resetControlsTimeout(); // Show controls on PIP toggle
-  }, [resetControlsTimeout])
+    resetControlsTimeout();
+  }, [resetControlsTimeout, isEmbed])
 
   useEffect(() => {
     const v = videoRef.current
-    if (!v) return
+    if (!v || isEmbed) return;
     const onEnterPip = () => setIsPipActive(true)
     const onLeavePip = () => setIsPipActive(false)
     v.addEventListener("enterpictureinpicture", onEnterPip as any)
@@ -700,7 +763,7 @@ export default function VideoPlayer({
       v.removeEventListener("enterpictureinpicture", onEnterPip as any)
       v.removeEventListener("leavepictureinpicture", onLeavePip as any)
     }
-  }, [])
+  }, [isEmbed]);
 
   const formatTime = (time: number) => {
     if (!Number.isFinite(time)) return "00:00"
@@ -735,8 +798,9 @@ export default function VideoPlayer({
   }
 
   useEffect(() => {
+    if (!isPlayerActive || isEmbed) return;
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!isPlayerActive) return;
       const activeElement = document.activeElement;
       if (activeElement && (activeElement.tagName === "INPUT" || activeElement.tagName === "TEXTAREA" || activeElement.getAttribute("role") === "slider")) return;
 
@@ -764,11 +828,10 @@ export default function VideoPlayer({
         case "arrowup": e.preventDefault(); handleVolumeChange([Math.min(1, volume + 0.1)]); break;
         case "arrowdown": e.preventDefault(); handleVolumeChange([Math.max(0, volume - 0.1)]); break;
       }
-      resetControlsTimeout(); // Reset timeout on any key interaction
+      resetControlsTimeout();
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
-      if (!isPlayerActive) return;
       if (e.key === ' ') {
         e.preventDefault();
         if (spacebarDownTimer.current) {
@@ -783,7 +846,7 @@ export default function VideoPlayer({
           isSpeedingUpRef.current = false;
         }
       }
-      resetControlsTimeout(); // Reset timeout on key up as well
+      resetControlsTimeout();
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -793,7 +856,7 @@ export default function VideoPlayer({
       window.removeEventListener("keyup", onKeyUp);
       if (spacebarDownTimer.current) clearTimeout(spacebarDownTimer.current);
     };
-  }, [isPlayerActive, volume, togglePlay, toggleFullscreen, toggleMute, togglePip, seek, isPlaying, resetControlsTimeout]); // Added resetControlsTimeout
+  }, [isPlayerActive, isEmbed, volume, togglePlay, toggleFullscreen, toggleMute, togglePip, seek, isPlaying, resetControlsTimeout]);
 
   const onProgressMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!duration || !progressWrapRef.current) return;
@@ -802,21 +865,16 @@ export default function VideoPlayer({
     const time = duration * pct;
     setHoverTime(time);
 
-    // CORREÇÃO: Lógica de atualização e renderização do thumbnail preview.
     const video = thumbnailVideoRef.current;
     const canvas = canvasRef.current;
 
-    // CORREÇÃO: Alterado para readyState >= 3 (HAVE_FUTURE_DATA) para mais confiabilidade
     if (video && canvas && video.readyState >= 3) {
-      // Força a busca do frame no vídeo de miniatura
       video.currentTime = time;
-
-      // Usa requestAnimationFrame para garantir que o desenho seja feito após a atualização do frame
       requestAnimationFrame(() => {
         const ctx = canvas.getContext('2d');
         if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
           const aspectRatio = video.videoWidth / video.videoHeight;
-          canvas.width = 144; // Largura fixa
+          canvas.width = 144;
           canvas.height = 144 / aspectRatio;
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         }
@@ -851,11 +909,11 @@ export default function VideoPlayer({
     }
   };
 
-  const handleTouchStart = (side: 'left' | 'right') => { // Capture side
+  const handleTouchStart = (side: 'left' | 'right') => {
     if (!isPlayerActive) return;
     holdTimeoutRef.current = setTimeout(() => {
       if (videoRef.current && isPlaying) {
-        isSpeedingUpRef.current = true; // Mark as speeding up
+        isSpeedingUpRef.current = true;
         originalRateRef.current = videoRef.current.playbackRate
         videoRef.current.playbackRate = 2
         setShowSpeedHint(true)
@@ -869,11 +927,10 @@ export default function VideoPlayer({
       clearTimeout(holdTimeoutRef.current)
       holdTimeoutRef.current = null
     }
-    // Only reset speed if it was actually speeding up
     if (isSpeedingUpRef.current && videoRef.current) {
         videoRef.current.playbackRate = originalRateRef.current
         setShowSpeedHint(false)
-        isSpeedingUpRef.current = false; // Reset flag
+        isSpeedingUpRef.current = false;
     }
   }
 
@@ -903,7 +960,6 @@ export default function VideoPlayer({
 
   const currentSpeedLabel = playbackRate === 1 ? "Normal" : `${playbackRate}x`;
 
-  // Define icon size classes - MODIFIED to be slightly larger
   const iconSize = "max-h-[20px] max-w-[20px] md:max-h-[22px] md:max-w-[22px]";
   const smallIconSize = "max-h-[16px] max-w-[16px] md:max-h-[18px] md:max-w-[18px]";
 
@@ -941,69 +997,81 @@ export default function VideoPlayer({
       <div
         ref={containerRef}
         className={cn(
-          "relative w-full h-full bg-black overflow-hidden group select-none video-player-container", // Added relative for absolute positioning inside
+          "relative w-full h-full bg-black overflow-hidden group select-none video-player-container",
           isPlaying && !showControls && !showNextEpisodeOverlay && isPlayerActive && "cursor-none"
         )}
-        onDoubleClick={e => e.preventDefault()} // Prevent double-click zoom
-        style={{ transform: 'translateZ(0)' }} // Promote to composite layer for smoother animations
+        onDoubleClick={e => e.preventDefault()}
+        style={{ transform: 'translateZ(0)' }}
       >
-        {/* Backdrop Image */}
         {backdropPath && (
             <Image
                 src={`https://image.tmdb.org/t/p/w1280${backdropPath}`}
                 alt={title}
-                fill // Use fill instead of layout="fill"
-                sizes="100vw" // Indicate it spans the viewport width
-                style={{ objectFit: 'cover' }} // Use style object for objectFit
-                className="absolute inset-0 opacity-40 blur-sm z-0" // Ensure it's behind the video
+                fill
+                sizes="100vw"
+                style={{ objectFit: 'cover' }}
+                className="absolute inset-0 opacity-40 blur-sm z-0"
                 priority
             />
         )}
 
+        {isEmbed ? (
+          <iframe
+            key={currentSource.url}
+            src={currentSource.url}
+            className={cn(
+              "h-full w-full object-contain transition-opacity relative z-[1]",
+              isPlayerActive ? "opacity-100" : "opacity-0"
+            )}
+            allowFullScreen
+            allow="autoplay; fullscreen"
+            scrolling="no"
+            frameBorder="0"
+          />
+        ) : (
+          <video
+            ref={videoRef}
+            className={cn(
+              "h-full w-full object-contain transition-opacity relative z-[1]",
+              isPlayerActive ? "opacity-100" : "opacity-0"
+            )}
+            onLoadStart={handleLoadStart}
+            onCanPlay={handleCanPlay}
+            onPlaying={() => setIsBuffering(false)}
+            onWaiting={() => setIsBuffering(true)}
+            onError={handleError}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onPlay={() => { setIsPlaying(true); resetControlsTimeout(); }}
+            onPause={() => { setIsPlaying(false); if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); }}
+            onEnded={handleEnded}
+            preload="metadata"
+            playsInline
+            webkit-playsinline="true"
+          />
+        )}
+        
+        {!isEmbed && (
+            <div
+                className="absolute inset-0 z-[5]"
+                onClick={handlePlayerAreaClick}
+            />
+        )}
 
-        {/* Video Element */}
-        <video
-          ref={videoRef}
-          className={cn(
-            "h-full w-full object-contain transition-opacity relative z-[1]", // Ensure video is above backdrop
-            isPlayerActive ? "opacity-100" : "opacity-0"
-          )}
-          onLoadStart={handleLoadStart}
-          onCanPlay={handleCanPlay}
-          onPlaying={() => setIsBuffering(false)}
-          onWaiting={() => setIsBuffering(true)}
-          onError={handleError}
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleLoadedMetadata}
-          onPlay={() => { setIsPlaying(true); resetControlsTimeout(); }} // CORREÇÃO: Reseta timeout ao dar play
-          onPause={() => { setIsPlaying(false); if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); }} // CORREÇÃO: Cancela timeout ao pausar
-          onEnded={handleEnded}
-          preload="metadata"
-          playsInline // Important for mobile playback without fullscreen
-          webkit-playsinline="true" // iOS specific attribute
-        />
-        {/* Clickable Area to Toggle Play/Pause */}
-        {/* Movido para dentro do Overlay */}
-        {/* <div
-            className="absolute inset-0 z-[5]" // Lower z-index than controls
-            onClick={handlePlayerAreaClick}
-        /> */}
-         {/* Thumbnail Video (Hidden) */}
-         {currentSource.thumbnailUrl && (
+         {currentSource.thumbnailUrl && !isEmbed && (
           <video
             ref={thumbnailVideoRef}
-            className="pointer-events-none absolute bottom-0 left-0 opacity-0 h-1 w-1" // Make it very small but still in DOM
+            className="pointer-events-none absolute bottom-0 left-0 opacity-0 h-1 w-1"
             preload="auto"
             muted
             playsInline
             webkit-playsinline="true"
-            autoPlay // Needed for seeking frames
-            loop // Needed for seeking frames
+            autoPlay
+            loop
             crossOrigin="anonymous"
           />
         )}
 
-        {/* Loading/Buffering Spinner */}
         {(isLoading || isBuffering) && isPlayerActive && (
           <div
             style={{ transform: 'translateZ(0)' }}
@@ -1013,7 +1081,6 @@ export default function VideoPlayer({
           </div>
         )}
 
-        {/* Error Overlay */}
         {error && (
           <div
             style={{ transform: 'translateZ(0)' }}
@@ -1036,19 +1103,18 @@ export default function VideoPlayer({
           </div>
         )}
 
-        {/* --- MODIFICAÇÃO: Overlay inicial agora usa handleOverlayClick --- */}
         <AnimatePresence>
-          {!isPlayerActive && !error && (
+          {/* MODIFICAÇÃO 2: Condição do Overlay alterada */}
+          {!isPlayerActive && !isEmbed && !error && (
             <PlayerOverlay
-              onClick={handleOverlayClick} // Passa o novo handler
+              onClick={handleOverlayClick}
               title={title}
               backdropPath={backdropPath}
             />
           )}
         </AnimatePresence>
 
-        {/* Continue Watching Overlay */}
-        {showContinueWatching && isPlayerActive && (
+        {showContinueWatching && isPlayerActive && !isEmbed && (
           <div
             style={{ transform: 'translateZ(0)' }}
             className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70"
@@ -1061,8 +1127,7 @@ export default function VideoPlayer({
           </div>
         )}
 
-        {/* Seek Hint Overlay */}
-        {showSeekHint && isPlayerActive && (
+        {showSeekHint && isPlayerActive && !isEmbed && (
           <div
             style={{ transform: 'translateZ(0)' }}
             className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
@@ -1073,9 +1138,8 @@ export default function VideoPlayer({
           </div>
         )}
 
-        {/* Speed Hint Overlay */}
         <AnimatePresence>
-          {showSpeedHint && isPlayerActive && (
+          {showSpeedHint && isPlayerActive && !isEmbed && (
             <motion.div
               style={{ transform: 'translateZ(0)' }}
               initial={{ opacity: 0, scale: 0.9 }}
@@ -1090,365 +1154,345 @@ export default function VideoPlayer({
           )}
         </AnimatePresence>
 
-        {/* Next Episode Overlay (Agora apenas um indicador rápido, pois a transição é imediata) */}
         <AnimatePresence>
-          {showNextEpisodeOverlay && isPlayerActive && (
+          {showNextEpisodeOverlay && isPlayerActive && !isEmbed && (
             <motion.div
               style={{ transform: 'translateZ(0)' }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 pointer-events-none" // Adicionado pointer-events-none
+              className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 pointer-events-none"
             >
                <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white" />
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Mobile tap zones */}
-        <div className="absolute inset-0 z-[2] flex md:hidden">
-            <div
-                className="flex-1"
-                onClick={() => onMobileTap('left')}
-                onTouchStart={() => handleTouchStart('left')} // Pass side
-                onTouchEnd={handleTouchEnd}
-                onTouchCancel={handleTouchEnd} // Handle cancellation
-            />
-            <div
-                className="w-1/3" // Center zone doesn't trigger speed up
-                onClick={() => onMobileTap('center')}
-            />
-            <div
-                className="flex-1"
-                onClick={() => onMobileTap('right')}
-                onTouchStart={() => handleTouchStart('right')} // Pass side
-                onTouchEnd={handleTouchEnd}
-                onTouchCancel={handleTouchEnd} // Handle cancellation
-            />
-        </div>
-
-        {/* Controls Container */}
-        <AnimatePresence>
-        {isPlayerActive && (
-            <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: showControls && !showNextEpisodeOverlay ? 1 : 0, y: showControls && !showNextEpisodeOverlay ? 0 : 20 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.2 }}
-            data-controls
-            style={{ transform: 'translateZ(0)' }}
-            className={cn(
-                "absolute inset-x-0 bottom-0 z-10 px-2 pb-2 md:bottom-4 md:px-4",
-                !(showControls && !showNextEpisodeOverlay) && "invisible pointer-events-none"
-            )}
-             // CORREÇÃO: Mouse enter/leave nos controles agora cancelam/reiniciam o timeout
-             onMouseEnter={() => {
-                if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-             }}
-             onMouseLeave={() => {
-                resetControlsTimeout();
-             }}
-            >
-                {/* Progress Bar Container */}
-                <div
-                    ref={progressWrapRef}
-                    onMouseMove={onProgressMouseMove}
-                    onMouseLeave={onProgressLeave}
-                    className="group/progress relative mb-1 cursor-pointer h-12"
-                    style={{ zIndex: 1 }}
-                >
-                    {/* Thumbnail Preview */}
+        
+        {!isEmbed && (
+            <>
+                <div className="absolute inset-0 z-[2] flex md:hidden">
                     <div
-                        className="absolute bottom-10 -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white text-xs ring-1 ring-white/10 overflow-hidden"
-                        style={{
-                        left: hoverLeft,
-                        visibility: hoverTime !== null ? 'visible' : 'hidden',
-                        }}
-                    >
-                        {currentSource.thumbnailUrl && thumbnailVideoRef.current && (
-                            <canvas
-                                ref={canvasRef}
-                                className="block aspect-video w-52 bg-black"
-                            />
-                        )}
-                        <span className="block px-2 py-1">{formatTime(hoverTime ?? 0)}</span>
-                    </div>
-
-                    {/* Slider */}
-                    <div className="absolute bottom-2 left-0 right-0 px-1 md:px-0 flex items-center h-3 group-hover/progress:h-4 transition-[height] duration-200">
-                        <div className="absolute top-1/2 -translate-y-1/2 h-2 group-hover/progress:h-3 w-full bg-white/20 rounded-full"/>
-                        <div className="absolute top-1/2 -translate-y-1/2 h-2 group-hover/progress:h-3 bg-white/40 rounded-full" style={{ width: `${bufferPercentage}%` }} />
-                        <Slider
-                            value={[Math.min(currentTime, duration || 0)]}
-                            max={duration || 100}
-                            step={0.1}
-                            onValueChange={handleSeekSlider}
-                            className="absolute w-full inset-0 h-full cursor-pointer"
-                            trackClassName="bg-transparent h-full"
-                            rangeClassName="bg-white h-2 group-hover/progress:h-3 absolute top-1/2 -translate-y-1/2 rounded-full"
-                            thumbClassName={cn(
-                                "bg-white border-white h-4 w-4 transition-opacity block",
-                                "group-hover/progress:opacity-100 opacity-0"
-                             )}
-                        />
-                    </div>
+                        className="flex-1"
+                        onClick={() => onMobileTap('left')}
+                        onTouchStart={() => handleTouchStart('left')}
+                        onTouchEnd={handleTouchEnd}
+                        onTouchCancel={handleTouchEnd}
+                    />
+                    <div
+                        className="w-1/3"
+                        onClick={() => onMobileTap('center')}
+                    />
+                    <div
+                        className="flex-1"
+                        onClick={() => onMobileTap('right')}
+                        onTouchStart={() => handleTouchStart('right')}
+                        onTouchEnd={handleTouchEnd}
+                        onTouchCancel={handleTouchEnd}
+                    />
                 </div>
 
-                {/* Solid Dark Gray Control Bar */}
-                <div className="bg-zinc-800 rounded-md md:rounded-lg px-2 py-2 md:px-3 md:py-2.5 flex items-center justify-between relative" style={{ zIndex: 0 }}>
-                    {/* Left Controls */}
-                    <div className="flex items-center gap-1.5 md:gap-2.5">
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                            <Button onClick={togglePlay} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
-                                {isPlaying ?
-                                    <img
-                                        src="https://i.ibb.co/fdgFF2VK/despause-pequeno-bot-o.png"
-                                        alt="Pause"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
-                                    :
-                                    <img
-                                        src="https://i.ibb.co/chY4zZLj/bot-o-de-play-central.png"
-                                        alt="Play"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
-                                }
-                            </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{isPlaying ? "Pausar (K)" : "Play (K)"}</TooltipContent>
-                        </Tooltip>
-
-                         {/* MODIFICAÇÃO: Volume Control Group - Horizontal */}
+                <AnimatePresence>
+                {isPlayerActive && (
+                    <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: showControls && !showNextEpisodeOverlay ? 1 : 0, y: showControls && !showNextEpisodeOverlay ? 0 : 20 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    transition={{ duration: 0.2 }}
+                    data-controls
+                    style={{ transform: 'translateZ(0)' }}
+                    className={cn(
+                        "absolute inset-x-0 bottom-0 z-10 px-2 pb-2 md:bottom-4 md:px-4",
+                        !(showControls && !showNextEpisodeOverlay) && "invisible pointer-events-none"
+                    )}
+                    onMouseEnter={() => {
+                        if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+                    }}
+                    onMouseLeave={() => {
+                        resetControlsTimeout();
+                    }}
+                    >
                         <div
-                            className="relative flex items-center"
-                            onMouseEnter={handleVolumeAreaMouseEnter}
-                            onMouseLeave={handleVolumeAreaMouseLeave}
+                            ref={progressWrapRef}
+                            onMouseMove={onProgressMouseMove}
+                            onMouseLeave={onProgressLeave}
+                            className="group/progress relative mb-1 cursor-pointer h-12"
+                            style={{ zIndex: 1 }}
                         >
-                            {/* Volume Button */}
-                             <Tooltip>
-                                <TooltipTrigger asChild>
-                                <Button onClick={toggleMute} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
-                                    <img
-                                        src="https://i.ibb.co/0VQwLNMw/botao-de-volume.png"
-                                        alt="Volume"
-                                        className={cn("object-contain", iconSize, (isMuted || volume === 0) && "opacity-50")}
-                                        draggable="false"
+                            <div
+                                className="absolute bottom-10 -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white text-xs ring-1 ring-white/10 overflow-hidden"
+                                style={{
+                                left: hoverLeft,
+                                visibility: hoverTime !== null ? 'visible' : 'hidden',
+                                }}
+                            >
+                                {currentSource.thumbnailUrl && thumbnailVideoRef.current && (
+                                    <canvas
+                                        ref={canvasRef}
+                                        className="block aspect-video w-52 bg-black"
                                     />
-                                </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Mutar (M)</TooltipContent>
-                             </Tooltip>
-                            {/* Horizontal Volume Slider */}
-                            <AnimatePresence>
-                                {isVolumeSliderVisible && ( // Usa o novo estado
-                                    <motion.div
-                                        initial={{ opacity: 0, x: -10, scale: 0.9 }} // Anima da esquerda
-                                        animate={{ opacity: 1, x: 0, scale: 1 }}
-                                        exit={{ opacity: 0, x: -10, scale: 0.9 }}
-                                        transition={{ duration: 0.15 }}
-                                        // Posiciona à direita do botão, centralizado verticalmente
-                                        className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-zinc-800 rounded-md px-3 py-2 shadow-lg"
-                                    >
-                                        <Slider
-                                            // orientation="horizontal" // Default
-                                            value={[volume]}
-                                            onValueChange={handleVolumeChange}
-                                            max={1}
-                                            step={0.01}
-                                            // Define largura e altura para horizontal
-                                            className="w-20 h-4 flex items-center cursor-pointer"
-                                            trackClassName="bg-white/30 h-1.5 w-full rounded-full"
-                                            rangeClassName="bg-white h-full rounded-full"
-                                            thumbClassName="h-3 w-3 bg-white border-white block"
-                                        />
-                                    </motion.div>
                                 )}
-                            </AnimatePresence>
+                                <span className="block px-2 py-1">{formatTime(hoverTime ?? 0)}</span>
+                            </div>
+
+                            <div className="absolute bottom-2 left-0 right-0 px-1 md:px-0 flex items-center h-3 group-hover/progress:h-4 transition-[height] duration-200">
+                                <div className="absolute top-1/2 -translate-y-1/2 h-2 group-hover/progress:h-3 w-full bg-white/20 rounded-full"/>
+                                <div className="absolute top-1/2 -translate-y-1/2 h-2 group-hover/progress:h-3 bg-white/40 rounded-full" style={{ width: `${bufferPercentage}%` }} />
+                                <Slider
+                                    value={[Math.min(currentTime, duration || 0)]}
+                                    max={duration || 100}
+                                    step={0.1}
+                                    onValueChange={handleSeekSlider}
+                                    className="absolute w-full inset-0 h-full cursor-pointer"
+                                    trackClassName="bg-transparent h-full"
+                                    rangeClassName="bg-white h-2 group-hover/progress:h-3 absolute top-1/2 -translate-y-1/2 rounded-full"
+                                    thumbClassName={cn(
+                                        "bg-white border-white h-4 w-4 transition-opacity block",
+                                        "group-hover/progress:opacity-100 opacity-0"
+                                     )}
+                                />
+                            </div>
                         </div>
 
-                        {/* Time Display */}
-                        <div className="flex select-none justify-between text-xs md:text-sm text-white/90 items-center gap-1 ml-1 md:ml-2">
-                            <span>{formatTime(currentTime)}</span>
-                            <span className="opacity-70">/</span>
-                            <span>{formatTime(duration)}</span>
-                        </div>
-                    </div>
+                        <div className="bg-zinc-800 rounded-md md:rounded-lg px-2 py-2 md:px-3 md:py-2.5 flex items-center justify-between relative" style={{ zIndex: 0 }}>
+                            <div className="flex items-center gap-1.5 md:gap-2.5">
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                    <Button onClick={togglePlay} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
+                                        {isPlaying ?
+                                            <img
+                                                src="https://i.ibb.co/fdgFF2VK/despause-pequeno-bot-o.png"
+                                                alt="Pause"
+                                                className={cn("object-contain", iconSize)}
+                                                draggable="false"
+                                            />
+                                            :
+                                            <img
+                                                src="https://i.ibb.co/chY4zZLj/bot-o-de-play-central.png"
+                                                alt="Play"
+                                                className={cn("object-contain", iconSize)}
+                                                draggable="false"
+                                            />
+                                        }
+                                    </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{isPlaying ? "Pausar (K)" : "Play (K)"}</TooltipContent>
+                                </Tooltip>
 
-                    {/* Center Title (Hidden on Mobile) */}
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none hidden max-w-[calc(100%-240px)] truncate px-4 text-sm text-white/80 md:block">
-                        {title}
-                    </div>
-
-                    {/* Right Controls */}
-                    <div className="flex items-center gap-1.5 md:gap-2.5">
-                       {/* Chromecast (Placeholder) */}
-                       <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center" disabled>
-                                    <img
-                                        src="https://i.ibb.co/2Yy4Pv04/bot-o-de-chromecast.png"
-                                        alt="Cast"
-                                        className={cn("object-contain opacity-50", iconSize)} // Dimmed
-                                        draggable="false"
-                                    />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Chromecast (Indisponível)</TooltipContent>
-                        </Tooltip>
-
-                        {/* Settings */}
-                        <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                            <Tooltip>
-                            <TooltipTrigger asChild>
-                                <PopoverTrigger asChild>
-                                <Button size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
-                                    <img
-                                        src="https://i.ibb.co/W4PKpLj1/botao-de-config.png"
-                                        alt="Configurações"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
-                                </Button>
-                                </PopoverTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent>Configurações</TooltipContent>
-                            </Tooltip>
-                             <PopoverContent
-                                className="w-64 border-zinc-700 bg-black/80 p-1 text-white backdrop-blur ring-1 ring-white/10"
-                                side="top"
-                                align="end"
-                                avoidCollisions
-                                container={containerRef.current}
-                                style={{ zIndex: 2147483647 }}
-                             >
-                                {/* Popover Content */}
-                                {settingsMenu === 'main' && (
-                                    <div className="flex flex-col gap-1">
-                                        {hasNextEpisode && (
-                                            <div className="flex items-center justify-between h-9 w-full px-2">
-                                                <Label htmlFor="autoplay-switch" className="text-sm font-normal flex items-center gap-2">Próximo ep. automático</Label>
-                                                <Switch
-                                                id="autoplay-switch"
-                                                checked={isAutoplayEnabled}
-                                                onCheckedChange={toggleAutoplay}
+                                <div
+                                    className="relative flex items-center"
+                                    onMouseEnter={handleVolumeAreaMouseEnter}
+                                    onMouseLeave={handleVolumeAreaMouseLeave}
+                                >
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                        <Button onClick={toggleMute} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
+                                            <img
+                                                src="https://i.ibb.co/0VQwLNMw/botao-de-volume.png"
+                                                alt="Volume"
+                                                className={cn("object-contain", iconSize, (isMuted || volume === 0) && "opacity-50")}
+                                                draggable="false"
+                                            />
+                                        </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Mutar (M)</TooltipContent>
+                                     </Tooltip>
+                                    <AnimatePresence>
+                                        {isVolumeSliderVisible && (
+                                            <motion.div
+                                                initial={{ opacity: 0, x: -10, scale: 0.9 }}
+                                                animate={{ opacity: 1, x: 0, scale: 1 }}
+                                                exit={{ opacity: 0, x: -10, scale: 0.9 }}
+                                                transition={{ duration: 0.15 }}
+                                                className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-zinc-800 rounded-md px-3 py-2 shadow-lg"
+                                            >
+                                                <Slider
+                                                    value={[volume]}
+                                                    onValueChange={handleVolumeChange}
+                                                    max={1}
+                                                    step={0.01}
+                                                    className="w-20 h-4 flex items-center cursor-pointer"
+                                                    trackClassName="bg-white/30 h-1.5 w-full rounded-full"
+                                                    rangeClassName="bg-white h-full rounded-full"
+                                                    thumbClassName="h-3 w-3 bg-white border-white block"
                                                 />
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
+
+                                <div className="flex select-none justify-between text-xs md:text-sm text-white/90 items-center gap-1 ml-1 md:ml-2">
+                                    <span>{formatTime(currentTime)}</span>
+                                    <span className="opacity-70">/</span>
+                                    <span>{formatTime(duration)}</span>
+                                </div>
+                            </div>
+
+                            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none hidden max-w-[calc(100%-240px)] truncate px-4 text-sm text-white/80 md:block">
+                                {title}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 md:gap-2.5">
+                               <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center" disabled>
+                                            <img
+                                                src="https://i.ibb.co/2Yy4Pv04/bot-o-de-chromecast.png"
+                                                alt="Cast"
+                                                className={cn("object-contain opacity-50", iconSize)}
+                                                draggable="false"
+                                            />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Chromecast (Indisponível)</TooltipContent>
+                                </Tooltip>
+
+                                <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                                    <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <PopoverTrigger asChild>
+                                        <Button size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
+                                            <img
+                                                src="https://i.ibb.co/W4PKpLj1/botao-de-config.png"
+                                                alt="Configurações"
+                                                className={cn("object-contain", iconSize)}
+                                                draggable="false"
+                                            />
+                                        </Button>
+                                        </PopoverTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Configurações</TooltipContent>
+                                    </Tooltip>
+                                     <PopoverContent
+                                        className="w-64 border-zinc-700 bg-black/80 p-1 text-white backdrop-blur ring-1 ring-white/10"
+                                        side="top"
+                                        align="end"
+                                        avoidCollisions
+                                        container={containerRef.current}
+                                        style={{ zIndex: 2147483647 }}
+                                     >
+                                        {settingsMenu === 'main' && (
+                                            <div className="flex flex-col gap-1">
+                                                {hasNextEpisode && (
+                                                    <div className="flex items-center justify-between h-9 w-full px-2">
+                                                        <Label htmlFor="autoplay-switch" className="text-sm font-normal flex items-center gap-2">Próximo ep. automático</Label>
+                                                        <Switch
+                                                        id="autoplay-switch"
+                                                        checked={isAutoplayEnabled}
+                                                        onCheckedChange={toggleAutoplay}
+                                                        />
+                                                    </div>
+                                                )}
+                                                <Button variant="ghost" className="h-9 w-full justify-between px-2" onClick={() => setSettingsMenu('playbackRate')}>
+                                                    <span className="flex items-center gap-2">Velocidade</span>
+                                                    <span className="flex items-center gap-1 text-white/70">{currentSpeedLabel} <ChevronRight className="h-4 w-4"/></span>
+                                                </Button
+>                                                <Button variant="ghost" className="h-9 w-full justify-between px-2" onClick={() => setSettingsMenu('quality')}>
+                                                     <span className="flex items-center gap-2">Qualidade</span>
+                                                     <span className="flex items-center gap-1 text-white/70">{currentSource.name} <ChevronRight className="h-4 w-4"/></span>
+                                                 </Button>
                                             </div>
                                         )}
-                                        <Button variant="ghost" className="h-9 w-full justify-between px-2" onClick={() => setSettingsMenu('playbackRate')}>
-                                            <span className="flex items-center gap-2">Velocidade</span>
-                                            <span className="flex items-center gap-1 text-white/70">{currentSpeedLabel} <ChevronRight className="h-4 w-4"/></span>
-                                        </Button>
-                                         <Button variant="ghost" className="h-9 w-full justify-between px-2" onClick={() => setSettingsMenu('quality')}>
-                                             <span className="flex items-center gap-2">Qualidade</span>
-                                             <span className="flex items-center gap-1 text-white/70">{currentSource.name} <ChevronRight className="h-4 w-4"/></span>
-                                         </Button>
-                                    </div>
-                                )}
-                                {settingsMenu === 'quality' && (
-                                    <div>
-                                        <Button variant="ghost" className="h-9 w-full justify-start px-2 mb-1" onClick={() => setSettingsMenu('main')}>
-                                            <ChevronLeft className="h-4 w-4 mr-2"/>
-                                            Qualidade
-                                        </Button>
-                                        <div className="flex flex-col gap-1">
-                                            {sources.map((source) => (
-                                            <Button
-                                                key={source.url} // Use URL as key, names might not be unique
-                                                variant="ghost"
-                                                className="h-9 w-full justify-start pl-8 pr-2 relative"
-                                                onClick={() => changeQuality(source)}
-                                            >
-                                                {currentSource.url === source.url && <Check className="absolute left-2 h-4 w-4"/>}
-                                                {source.name}
-                                            </Button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                                {settingsMenu === 'playbackRate' && (
-                                    <div>
-                                        <Button variant="ghost" className="h-9 w-full justify-start px-2 mb-1" onClick={() => setSettingsMenu('main')}>
-                                            <ChevronLeft className="h-4 w-4 mr-2"/>
-                                            Velocidade
-                                        </Button>
-                                        <div className="flex flex-col gap-1">
-                                            {playbackRates.map((r) => (
-                                            <Button
-                                                key={r}
-                                                variant="ghost"
-                                                className="h-9 w-full justify-start pl-8 pr-2 relative"
-                                                onClick={() => changePlaybackRate(r)}
-                                            >
-                                                {playbackRate === r && <Check className="absolute left-2 h-4 w-4"/>}
-                                                {r === 1 ? "Normal" : `${r}x`}
-                                            </Button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </PopoverContent>
-                        </Popover>
+                                        {settingsMenu === 'quality' && (
+                                            <div>
+                                                <Button variant="ghost" className="h-9 w-full justify-start px-2 mb-1" onClick={() => setSettingsMenu('main')}>
+                                                    <ChevronLeft className="h-4 w-4 mr-2"/>
+                                                    Qualidade
+                                                </Button>
+                                                <div className="flex flex-col gap-1">
+                                                    {sources.map((source) => (
+                                                    <Button
+                                                        key={source.url}
+                                                        variant="ghost"
+                                                        className="h-9 w-full justify-start pl-8 pr-2 relative"
+                                                        onClick={() => changeQuality(source)}
+                                                    >
+                                                        {currentSource.url === source.url && <Check className="absolute left-2 h-4 w-4"/>}
+                                                        {source.name}
+                                                    </Button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {settingsMenu === 'playbackRate' && (
+                                            <div>
+                                                <Button variant="ghost" className="h-9 w-full justify-start px-2 mb-1" onClick={() => setSettingsMenu('main')}>
+                                                    <ChevronLeft className="h-4 w-4 mr-2"/>
+                                                    Velocidade
+                                                </Button>
+                                                <div className="flex flex-col gap-1">
+                                                    {playbackRates.map((r) => (
+                                                    <Button
+                                                        key={r}
+                                                        variant="ghost"
+                                                        className="h-9 w-full justify-start pl-8 pr-2 relative"
+                                                        onClick={() => changePlaybackRate(r)}
+                                                    >
+                                                        {playbackRate === r && <Check className="absolute left-2 h-4 w-4"/>}
+                                                        {r === 1 ? "Normal" : `${r}x`}
+                                                    </Button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </PopoverContent>
+                                </Popover>
 
-                        {/* PiP */}
-                        {pipSupported && (
-                            <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button onClick={togglePip} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
-                                <img
-                                    src="https://i.ibb.co/Jw0ndFSc/picture-in-picture.png"
-                                    alt="PiP"
-                                    className={cn("object-contain", iconSize, isPipActive && "opacity-70")}
-                                    draggable="false"
-                                />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Picture-in-Picture (P)</TooltipContent>
-                            </Tooltip>
-                        )}
+                                {pipSupported && (
+                                    <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button onClick={togglePip} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
+                                        <img
+                                            src="https://i.ibb.co/Jw0ndFSc/picture-in-picture.png"
+                                            alt="PiP"
+                                            className={cn("object-contain", iconSize, isPipActive && "opacity-70")}
+                                            draggable="false"
+                                        />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Picture-in-Picture (P)</TooltipContent>
+                                    </Tooltip>
+                                )}
 
-                        {/* Fullscreen */}
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                            <Button onClick={toggleFullscreen} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
-                                {isFullscreen ?
-                                    <img
-                                        src="https://i.ibb.co/bg2F2VFZ/sair-de-tela-cheia.png"
-                                        alt="Sair Tela Cheia"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
-                                    :
-                                    <img
-                                        src="https://i.ibb.co/x8wjGChh/tela-cheia-bot-o.png"
-                                        alt="Tela Cheia"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
-                                }
-                            </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Tela Cheia (F)</TooltipContent>
-                        </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                    <Button onClick={toggleFullscreen} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
+                                        {isFullscreen ?
+                                            <img
+                                                src="https://i.ibb.co/bg2F2VFZ/sair-de-tela-cheia.png"
+                                                alt="Sair Tela Cheia"
+                                                className={cn("object-contain", iconSize)}
+                                                draggable="false"
+                                            />
+                                            :
+                                            <img
+                                                src="https://i.ibb.co/x8wjGChh/tela-cheia-bot-o.png"
+                                                alt="Tela Cheia"
+                                                className={cn("object-contain", iconSize)}
+                                                draggable="false"
+                                            />
+                                        }
+                                    </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Tela Cheia (F)</TooltipContent>
+                                </Tooltip>
 
-                         {/* Close Button (Optional) */}
-                         {onClose && (
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                <Button onClick={onClose} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10">
-                                    <X className={smallIconSize} />
-                                </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Fechar</TooltipContent>
-                            </Tooltip>
-                        )}
-                    </div>
-                </div>
-            </motion.div>
+                                 {onClose && (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                        <Button onClick={onClose} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10">
+                                            <X className={smallIconSize} />
+                                        </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Fechar</TooltipContent>
+                                    </Tooltip>
+                                )}
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+                </AnimatePresence>
+            </>
         )}
-        </AnimatePresence>
       </div>
     </TooltipProvider>
   )

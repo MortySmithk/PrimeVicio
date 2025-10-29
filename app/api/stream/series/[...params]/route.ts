@@ -128,11 +128,9 @@ export async function GET(
         return NextResponse.json(responseData);
     }
 
-    // Se não encontrou no Firestore, usa o fallback
-    console.log(`${logPrefix} Usando fallback (Roxano)`);
-    const fallbackUrl = `https://roxanoplay.bb-bet.top/pages/proxys.php?id=${tmdbId}/${season}/${episode}`;
-
-    responseData.streams = [{ playerType: "custom", url: fallbackUrl, name: "Servidor Secundário" }];
+    // MODIFICADO: Se não encontrou no Firestore, retorna array vazio
+    console.log(`${logPrefix} Nenhum stream encontrado no Firestore.`);
+    responseData.streams = []; // Retorna array vazio
     console.timeEnd(`${logPrefix} Total Execution`); // End total timer
     return NextResponse.json(responseData);
 

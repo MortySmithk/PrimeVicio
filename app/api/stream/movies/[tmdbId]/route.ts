@@ -72,15 +72,11 @@ export async function GET(
         return NextResponse.json({ streams: firestoreStreams, ...tmdbInfo });
     }
 
-    // Se não encontrou no Firestore, usa o fallback
-    console.log(`[API de Filmes] Usando fallback (Roxano) para TMDB ${tmdbId}`);
-    const fallbackUrl = `https://roxanoplay.bb-bet.top/pages/hostmov.php?id=${tmdbId}`;
-
-    // Note: We don't fetch the fallback URL here, just provide the link.
-    // Performance depends on how quickly the *client* (video player) fetches and processes this fallback URL.
+    // MODIFICADO: Se não encontrou no Firestore, retorna array vazio
+    console.log(`[API de Filmes] Nenhum stream encontrado no Firestore para TMDB ${tmdbId}.`);
     console.timeEnd(`[API Filme ${tmdbId}] Total Execution`); // End total timer
     return NextResponse.json({
-        streams: [{ playerType: "custom", url: fallbackUrl, name: "Servidor Secundário" }],
+        streams: [], // Retorna array vazio
         ...tmdbInfo
     });
 
