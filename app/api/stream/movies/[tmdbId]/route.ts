@@ -10,26 +10,26 @@ async function getFirestoreStreamData(docSnap: DocumentSnapshot) {
     if (docSnap.exists()) {
         const docData = docSnap.data();
         if (docData?.urls?.length > 0) {
-            console.log(`[Filme ${docSnap.id}] Stream(s) encontrado(s) no Firestore: ${docData.urls.length}`); // Log count
+            console.log(`[Filme ${docSnap.id}] Stream(s) encontrado(s) no Firestore: ${docData.urls.length}`);
             return docData.urls.map((stream: any) => ({
-                playerType: "custom",
+                playerType: "custom", 
                 url: stream.url,
                 name: stream.quality || "HD",
-                thumbnailUrl: stream.thumbnailUrl, // Make sure this field exists in your Firestore data
+                thumbnailUrl: stream.thumbnailUrl, 
             }));
         }
     }
-    console.log(`[Filme ${docSnap.id}] Nenhum stream encontrado no Firestore.`); // Log if not found
+    console.log(`[Filme ${docSnap.id}] Nenhum stream encontrado no Firestore.`);
     return null;
 }
 
 async function getTmdbInfo(tmdbId: string) {
-    console.time(`[TMDB Info Fetch ${tmdbId}]`); // Start timer
+    console.time(`[TMDB Info Fetch ${tmdbId}]`); 
     try {
         const tmdbRes = await fetch(`${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}&language=pt-BR`);
         if (tmdbRes.ok) {
             const tmdbData = await tmdbRes.json();
-             console.timeEnd(`[TMDB Info Fetch ${tmdbId}]`); // End timer
+             console.timeEnd(`[TMDB Info Fetch ${tmdbId}]`); 
             return {
                 title: tmdbData.title,
                 originalTitle: tmdbData.original_title,
@@ -38,10 +38,10 @@ async function getTmdbInfo(tmdbId: string) {
         } else {
              console.warn(`[API de Filmes] Falha ao buscar TMDB para ${tmdbId}. Status: ${tmdbRes.status}`);
         }
-    } catch (e: any) { // Type assertion for error object
+    } catch (e: any) { 
         console.error(`[API de Filmes] Erro na busca TMDB para ${tmdbId}:`, e.message);
     }
-     console.timeEnd(`[TMDB Info Fetch ${tmdbId}]`); // End timer even on error
+     console.timeEnd(`[TMDB Info Fetch ${tmdbId}]`); 
     return { title: null, originalTitle: null, backdropPath: null };
 }
 
@@ -54,35 +54,59 @@ export async function GET(
     return NextResponse.json({ error: "TMDB ID é necessário." }, { status: 400 });
   }
 
-   console.log(`[API Filme ${tmdbId}] Iniciando busca...`);
-   console.time(`[API Filme ${tmdbId}] Total Execution`); // Start total timer
+  const { searchParams } = new URL(request.url);
+  const source = searchParams.get("source");
+
+   console.log(`[API Filme ${tmdbId}] Iniciando busca (Fonte: ${source || 'default'})...`);
+   console.time(`[API Filme ${tmdbId}] Total Execution`); 
 
   try {
-    console.time(`[API Filme ${tmdbId}] Parallel Fetch`); // Start parallel timer
+    // --- LÓGICA VIDSRC (LEGENDADO) ---
+    if (source === 'vidsrc') {
+        console.log(`[API de Filmes] Usando vidsrc-embed.ru (Legendado) para TMDB ${tmdbId}`);
+        
+        // --- CORREÇÃO APLICADA ---
+        // Busca o Título/Backdrop
+        const tmdbInfo = await getTmdbInfo(tmdbId);
+        
+        // Usa o TMDB ID diretamente, como você mostrou
+        const vidsrcUrl = `https://vidsrc-embed.ru/embed/movie/${tmdbId}`;
+        // --- FIM DA CORREÇÃO ---
+
+        console.timeEnd(`[API Filme ${tmdbId}] Total Execution`);
+        return NextResponse.json({
+            streams: [{ playerType: "iframe", url: vidsrcUrl, name: "Legendado" }],
+            ...tmdbInfo // Passa o title e backdrop
+        });
+    }
+
+    // --- LÓGICA FIRESTORE (DUBLADO) ---
+    // Se não for 'vidsrc', busca Firestore e TMDB Info em paralelo
+    console.time(`[API Filme ${tmdbId}] Parallel Fetch`); 
     const [tmdbInfo, firestoreDoc] = await Promise.all([
         getTmdbInfo(tmdbId),
         getDoc(doc(firestore, "media", tmdbId))
     ]);
-     console.timeEnd(`[API Filme ${tmdbId}] Parallel Fetch`); // End parallel timer
-
-    const firestoreStreams = await getFirestoreStreamData(firestoreDoc);
-
-    if (firestoreStreams) {
-        console.timeEnd(`[API Filme ${tmdbId}] Total Execution`); // End total timer
-        return NextResponse.json({ streams: firestoreStreams, ...tmdbInfo });
+     console.timeEnd(`[API Filme ${tmdbId}] Parallel Fetch`); 
+    
+    if (firestoreDoc) {
+        const firestoreStreams = await getFirestoreStreamData(firestoreDoc);
+        if (firestoreStreams) {
+            console.timeEnd(`[API Filme ${tmdbId}] Total Execution`); 
+            return NextResponse.json({ streams: firestoreStreams, ...tmdbInfo });
+        }
     }
 
-    // MODIFICADO: Se não encontrou no Firestore, retorna array vazio
-    console.log(`[API de Filmes] Nenhum stream encontrado no Firestore para TMDB ${tmdbId}.`);
-    console.timeEnd(`[API Filme ${tmdbId}] Total Execution`); // End total timer
+    console.log(`[API de Filmes] Nenhum stream 'default' (Firestore) encontrado para ${tmdbId}.`);
+    console.timeEnd(`[API Filme ${tmdbId}] Total Execution`);
     return NextResponse.json({
-        streams: [], // Retorna array vazio
+        streams: [], 
         ...tmdbInfo
     });
 
-  } catch (error: any) { // Type assertion for error object
+  } catch (error: any) { 
     console.error(`[Filme ${tmdbId}] Erro geral na API:`, error.message);
-     console.timeEnd(`[API Filme ${tmdbId}] Total Execution`); // End total timer on error
+     console.timeEnd(`[API Filme ${tmdbId}] Total Execution`); 
     return NextResponse.json({ error: "Falha ao processar a requisição do filme" }, { status: 500 });
   }
 }

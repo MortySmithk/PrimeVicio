@@ -17,7 +17,9 @@ export async function GET(
   const docRef = doc(firestore, "media", tmdbId);
   const docSnap = await getDoc(docRef);
   if (!docSnap.exists()) {
-    return NextResponse.json({ error: "Link de download não encontrado." }, { status: 404 });
+    // Adicione uma verificação mais específica se o episódio existe
+    // (Opcional, pois o proxy fará isso, mas pode melhorar o UX)
+    return NextResponse.json({ error: "Link de download não encontrado para esta série." }, { status: 404 });
   }
   
   const adUrl = "https://otieu.com/4/9835277";
@@ -56,10 +58,12 @@ export async function GET(
               // 2. Inicia o download através da rota de proxy
               window.location.href = '${proxyDownloadUrl}';
 
-              // 3. Redireciona para o anúncio após 4 segundos
+              // --- CORREÇÃO: ALTERAR TEMPO PARA 5 SEGUNDOS ---
+              // 3. Redireciona para o anúncio após 5 segundos
               setTimeout(function() {
                   window.location.href = '${adUrl}';
-              }, 4000);
+              }, 5000); // Alterado de 4000 para 5000
+              // --- FIM DA CORREÇÃO ---
           });
       </script>
   </body>

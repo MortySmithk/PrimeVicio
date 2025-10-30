@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import PaginationComponent from "@/components/PaginationComponent"
 import { MediaCard, type MediaItem } from "@/components/media-card"
+import { firestore } from "@/lib/firebase" // Importa a configuração do Firebase
+import { collection, onSnapshot, query } from "firebase/firestore" // Importa o onSnapshot
 
 // --- CONSTANTES ---
 const API_KEY = "860b66ade580bacae581f4228fad49fc";
@@ -154,14 +156,97 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [heroBackdrop, setHeroBackdrop] = useState<string | null>(null);
   
-  const [stats] = useState<Stats>({
-      movies: "29,658 Filmes",
-      series: "7,070 Séries",
-      episodes: "248,458 Episódios",
+  // Define o estado inicial como "Carregando..."
+  const [stats, setStats] = useState<Stats>({
+      movies: "Carregando...",
+      series: "Carregando...",
+      episodes: "Carregando...",
   });
   
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
+
+  // Hook para buscar e ouvir as estatísticas do Firebase
+  useEffect(() => {
+    // Define a query para a coleção 'media'
+    const q = query(collection(firestore, "media"));
+
+    // Usa onSnapshot para atualizações em tempo real
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let movieCount = 0;
+      let seriesCount = 0;
+      let episodeCount = 0;
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+
+        // Lógica de contagem de Filmes (baseada no admin.html)
+        if (data.type === 'movie' && Array.isArray(data.urls) && data.urls.length > 0) {
+            let hasMp4Link = false;
+            let hasForbiddenLink = false; // Mantém a lógica de links proibidos
+
+            for (const urlData of data.urls) {
+                if (urlData && urlData.url && typeof urlData.url === 'string') {
+                    const url = urlData.url.toLowerCase();
+                    if (url.endsWith('.mp4')) {
+                        hasMp4Link = true;
+                    }
+                    if (url.includes('abyss') || url.includes('short.icu') || url.includes('superflix')) {
+                        hasForbiddenLink = true;
+                    }
+                }
+            }
+            
+            if (hasMp4Link && !hasForbiddenLink) {
+                movieCount++;
+            }
+        }
+
+        // Lógica de contagem de Séries e Episódios (adaptada para .mp4)
+        if (data.type === 'series' && data.seasons) {
+            let totalEpisodesInThisSeries = 0;
+            // Itera sobre os valores (temporadas) do objeto 'seasons'
+            Object.values(data.seasons).forEach((season: any) => {
+                if (season && Array.isArray(season.episodes)) {
+                    season.episodes.forEach((ep: any) => {
+                        if (ep && Array.isArray(ep.urls)) {
+                            // Verifica se ALGUM link para este episódio termina com .mp4
+                            const hasMp4Url = ep.urls.some((u: any) => 
+                                u && u.url && typeof u.url === 'string' && u.url.toLowerCase().endsWith('.mp4')
+                            );
+                            if (hasMp4Url) {
+                                totalEpisodesInThisSeries++;
+                            }
+                        }
+                    });
+                }
+            });
+
+            if (totalEpisodesInThisSeries > 0) {
+                seriesCount++; // Conta a série se ela tiver pelo menos 1 ep .mp4
+                episodeCount += totalEpisodesInThisSeries; // Adiciona os eps .mp4 ao total
+            }
+        }
+      });
+
+      // Atualiza o estado com os números formatados
+      setStats({
+          movies: `${movieCount.toLocaleString('pt-BR')} Filmes`,
+          series: `${seriesCount.toLocaleString('pt-BR')} Séries`,
+          episodes: `${episodeCount.toLocaleString('pt-BR')} Episódios`,
+      });
+    }, (error) => {
+      console.error("Erro ao buscar estatísticas do Firestore: ", error);
+      setStats({
+          movies: "Erro ao carregar",
+          series: "Erro ao carregar",
+          episodes: "Erro ao carregar",
+      });
+    });
+
+    // Função de limpeza para parar de ouvir quando o componente for desmontado
+    return () => unsubscribe();
+  }, []); // O array vazio [] garante que isso rode apenas uma vez (na montagem)
 
   const fetchMedia = useCallback(async (page: number) => {
     setLoading(true);

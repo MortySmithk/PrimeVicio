@@ -55,10 +55,12 @@ export async function GET(
               // 2. Inicia o download através da rota de proxy
               window.location.href = '${proxyDownloadUrl}';
 
-              // 3. Redireciona para o anúncio após 4 segundos
+              // --- CORREÇÃO: ALTERAR TEMPO PARA 5 SEGUNDOS ---
+              // 3. Redireciona para o anúncio após 5 segundos
               setTimeout(function() {
                   window.location.href = '${adUrl}';
-              }, 4000);
+              }, 5000); // Alterado de 4000 para 5000
+              // --- FIM DA CORREÇÃO ---
           });
       </script>
   </body>

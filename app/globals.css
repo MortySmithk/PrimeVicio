@@ -136,3 +136,30 @@ html:hover::-webkit-scrollbar-thumb {
   width: 100vw;
   height: 100vh;
 }
+/* Adicione no final do seu arquivo CSS global */
+@layer components {
+  .custom-spinner {
+    width: 48px; /* Ajuste o tamanho conforme necessário */
+    height: 48px;
+    border-radius: 50%;
+    position: relative;
+    animation: rotate 1s linear infinite;
+    border-top: 3px solid rgba(0, 191, 255, 0.2); /* Cor ciano clara */
+    border-right: 3px solid rgba(0, 191, 255, 0.2);
+    border-bottom: 3px solid rgba(0, 191, 255, 0.2);
+    border-left: 3px solid #00BFFF; /* Cor ciano principal */
+  }
+
+  @keyframes rotate {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Estilos para a barra de progresso fina */
+  .thin-slider .group-hover\/progress\:h-1\.5 { height: 0.375rem !important; } /* Aumenta um pouco no hover */
+  .thin-slider .h-1\.5 { height: 0.375rem !important; }
+  .thin-slider .h-1 { height: 0.25rem !important; } /* Altura normal */
+  .thin-slider .h-3 { height: 0.75rem !important; width: 0.75rem !important; } /* Thumb normal */
+  .thin-slider .group-hover\/progress\:h-3\.5 { height: 0.875rem !important; width: 0.875rem !important; } /* Thumb no hover */
+
+}
