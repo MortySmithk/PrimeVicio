@@ -46,7 +46,7 @@ const PlayerOverlay = ({ onClick, title, backdropPath }: { onClick: () => void; 
          <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30 blur-sm z-[-1]" draggable="false" />
       )}
       <img
-        src={isHovering ? "https://i.ibb.co/b5GFzpMs/bot-o-de-play-central-aceso.png" : "https://i.ibb.co/8qbZwTV/bot-o-de-play-central.png"}
+        src={isHovering ? "https://i.ibb.co/93Gb7czX/bot-o-de-play-central-aceso.png" : "https://i.ibb.co/qLnJTS9C/bot-o-de-play-central.png"}
         alt="Assistir"
         className="h-16 w-16 object-contain pointer-events-auto" 
         onMouseEnter={() => setIsHovering(true)}
