@@ -2,17 +2,16 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-// Adicione o ícone de Download se for usar o do lucide-react, senão remova
-import { Play, Pause, RotateCcw, X, ChevronLeft, ChevronRight, Check, AlertTriangle, Volume2, VolumeX, Settings, Maximize, Minimize, PictureInPicture, Download } from 'lucide-react' 
+import { Play, Pause, RotateCcw, X, ChevronLeft, ChevronRight, Check, AlertTriangle, Volume2, VolumeX, Settings, Maximize, Minimize, PictureInPicture, Download, Cast } from 'lucide-react' 
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover" 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
-import Image from 'next/image'; // Mantenha o import se usar em outros lugares
+import { useIsMobile } from "@/hooks/use-mobile" 
 
 type StreamSource = {
   url: string;
@@ -23,36 +22,32 @@ type StreamSource = {
 type VideoPlayerProps = {
   sources: StreamSource[]
   title: string
-  // Removido downloadUrl, pois agora pegamos da rememberPositionKey
   onClose?: () => void
-  rememberPositionKey?: string // ESSENCIAL PARA O DOWNLOAD
+  rememberPositionKey?: string
   rememberPosition?: boolean
   hasNextEpisode?: boolean
   onNextEpisode?: () => void
   backdropPath?: string | null;
 }
 
-// --- Componente de Overlay inicial (sem mudanças) ---
+// --- Componente de Overlay inicial ---
 const PlayerOverlay = ({ onClick, title, backdropPath }: { onClick: () => void; title: string; backdropPath: string | null }) => {
-  const [isHovering, setIsHovering] = useState(false);
   const imageUrl = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : null;
 
   return (
     <div
-      className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 cursor-pointer"
+      className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 cursor-pointer group/overlay"
       onClick={onClick} 
     >
       {imageUrl && (
          <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30 blur-sm z-[-1]" draggable="false" />
       )}
-      <img
-        src={isHovering ? "https://i.ibb.co/93Gb7czX/bot-o-de-play-central-aceso.png" : "https://i.ibb.co/qLnJTS9C/bot-o-de-play-central.png"}
-        alt="Assistir"
-        className="h-16 w-16 object-contain pointer-events-auto" 
-        onMouseEnter={() => setIsHovering(true)}
-        onMouseLeave={() => setIsHovering(false)}
-        draggable="false"
-      />
+      
+      <div
+        className="h-28 w-28 rounded-full bg-white/20 flex items-center justify-center transition-all duration-300 group-hover/overlay:bg-white/30 group-hover/overlay:scale-110"
+      >
+        <Play className="h-16 w-16 text-white fill-white" />
+      </div>
     </div>
   );
 };
@@ -62,11 +57,11 @@ export default function VideoPlayer({
   sources,
   title,
   onClose,
-  rememberPositionKey, // Usaremos esta chave para gerar o link de download
+  rememberPositionKey,
   rememberPosition = true,
   hasNextEpisode,
   onNextEpisode,
-  backdropPath, // Mantido para o overlay inicial
+  backdropPath,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement & { webkitEnterFullscreen?: () => void }>(null)
   const thumbnailVideoRef = useRef<HTMLVideoElement>(null);
@@ -74,7 +69,8 @@ export default function VideoPlayer({
   const progressWrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // ... (todos os outros hooks useState, useRef, useCallback, useEffect permanecem os mesmos) ...
+  const isMobile = useIsMobile() 
+
   const [isSandboxed, setIsSandboxed] = useState(false);
   const [adBlockerDetected, setAdBlockerDetected] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -125,7 +121,6 @@ export default function VideoPlayer({
   const lastAdTimeRef = useRef<number | null>(null);
   const lastFullscreenAdTimeRef = useRef<number | null>(null);
 
-  // ... (Toda a lógica dentro dos useEffects e funções de callback permanece a mesma) ...
    useEffect(() => {
     if (typeof window === 'undefined') {
         setChecking(false);
@@ -163,18 +158,20 @@ export default function VideoPlayer({
     return true;
   }, [adUrl]);
 
-  const triggerAdAndPause = useCallback(() => {
+  // --- INÍCIO DA MODIFICAÇÃO ---
+  // A função foi renomeada de 'triggerAdAndPause' para 'triggerAdOnFullscreen'
+  // A linha que pausa o vídeo foi removida.
+  const triggerAdOnFullscreen = useCallback(() => {
     const adWindow = window.open(adUrl, "_blank");
     const adWasSuccessful = !!adWindow && !adWindow.closed && typeof adWindow.closed === 'boolean';
 
     if (adWasSuccessful) {
         lastFullscreenAdTimeRef.current = Date.now();
-        if (videoRef.current && !videoRef.current.paused) {
-            videoRef.current.pause();
-        }
+        // A linha 'videoRef.current.pause()' foi removida daqui.
     }
     return adWasSuccessful;
   }, [adUrl]);
+  // --- FIM DA MODIFICAÇÃO ---
 
   const handleOverlayClick = () => {
     if (overlayClickCount === 0) {
@@ -215,14 +212,15 @@ export default function VideoPlayer({
         setChecking(false);
     }
   };
-
+  
   const handlePlayerAreaClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).tagName === 'IMG' && (e.target as HTMLElement).closest('.absolute.inset-0.z-20')) {
-        return; 
-    }
+    if (isMobile) return; 
     if ((e.target as HTMLElement).closest('[data-controls]')) return;
+    if ((e.target as HTMLElement).closest('.group\\/overlay')) return;
+    
     togglePlay();
   };
+
 
   useEffect(() => {
     const video = videoRef.current;
@@ -513,7 +511,10 @@ export default function VideoPlayer({
         const shouldTriggerAd = !lastFullscreenAdTimeRef.current || (Date.now() - lastFullscreenAdTimeRef.current) > adInterval;
 
         if (shouldTriggerAd) {
-            const adWasSuccessful = triggerAdAndPause();
+            // --- INÍCIO DA MODIFICAÇÃO ---
+            // Chamando a nova função 'triggerAdOnFullscreen'
+            const adWasSuccessful = triggerAdOnFullscreen();
+            // --- FIM DA MODIFICAÇÃO ---
             if (!adWasSuccessful) {
                 console.warn("Popup ad might have been blocked on fullscreen attempt.");
             }
@@ -544,7 +545,10 @@ export default function VideoPlayer({
       console.error("Erro ao gerenciar fullscreen:", err);
     }
     resetControlsTimeout(); 
-  }, [adInterval, triggerAdAndPause, resetControlsTimeout]); 
+    // --- INÍCIO DA MODIFICAÇÃO ---
+    // Atualizando a dependência do useCallback
+  }, [adInterval, triggerAdOnFullscreen, resetControlsTimeout]); 
+  // --- FIM DA MODIFICAÇÃO ---
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -765,7 +769,7 @@ export default function VideoPlayer({
     if (isDoubleTap) {
         if (side === 'left') seek(-10);
         else if (side === 'right') seek(10);
-        else togglePlay();
+        // else togglePlay(); // Removido
         lastTapRef.current = { time: 0, side: 'center' };
     } else {
         if(side === 'center') {
@@ -837,7 +841,13 @@ export default function VideoPlayer({
   if (checking) {
     return (
       <div className="w-full h-full bg-black flex items-center justify-center">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-white/20 border-t-white" />
+        <div className="loading-bars">
+            <div className="loading-bar"></div>
+            <div className="loading-bar"></div>
+            <div className="loading-bar"></div>
+            <div className="loading-bar"></div>
+            <div className="loading-bar"></div>
+        </div>
       </div>
     );
   }
@@ -871,24 +881,11 @@ export default function VideoPlayer({
           "relative w-full h-full bg-black overflow-hidden group select-none video-player-container", 
           isPlaying && !showControls && !showNextEpisodeOverlay && isPlayerActive && "cursor-none"
         )}
+        onClick={handlePlayerAreaClick}
         onDoubleClick={e => e.preventDefault()} 
         style={{ transform: 'translateZ(0)' }} 
       >
-        {/* --- CORREÇÃO: REMOVER IMAGEM DE FUNDO --- */}
-        {/* Comentamos a renderização da imagem de fundo */}
-        {/* {backdropPath && (
-            <Image
-                src={`https://image.tmdb.org/t/p/w1280${backdropPath}`}
-                alt={title}
-                fill 
-                sizes="100vw" 
-                style={{ objectFit: 'cover' }} 
-                className="absolute inset-0 opacity-40 blur-sm z-0" 
-                priority
-            />
-        )} */}
-        {/* --- FIM DA CORREÇÃO --- */}
-
+        
         {/* Video Element */}
         <video
             ref={videoRef}
@@ -933,7 +930,13 @@ export default function VideoPlayer({
             style={{ transform: 'translateZ(0)' }}
             className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
         >
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-white/20 border-t-white" />
+            <div className="loading-bars">
+                <div className="loading-bar"></div>
+                <div className="loading-bar"></div>
+                <div className="loading-bar"></div>
+                <div className="loading-bar"></div>
+                <div className="loading-bar"></div>
+            </div>
         </div>
         )}
 
@@ -966,7 +969,7 @@ export default function VideoPlayer({
             <PlayerOverlay
             onClick={handleOverlayClick} 
             title={title}
-            backdropPath={backdropPath} // O overlay inicial ainda usa o backdrop
+            backdropPath={backdropPath}
             />
         )}
         </AnimatePresence>
@@ -1121,24 +1124,13 @@ export default function VideoPlayer({
                 <div className="bg-zinc-800 rounded-md md:rounded-lg px-2 py-2 md:px-3 md:py-2.5 flex items-center justify-between relative" style={{ zIndex: 0 }}>
                     {/* Left Controls */}
                     <div className="flex items-center gap-1.5 md:gap-2.5">
-                        {/* ... (Botões Play/Pause, Volume, Tempo) ... */}
                          <Tooltip>
                             <TooltipTrigger asChild>
                             <Button onClick={togglePlay} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
                                 {isPlaying ?
-                                    <img
-                                        src="https://i.ibb.co/fdgFF2VK/despause-pequeno-bot-o.png"
-                                        alt="Pause"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
+                                    <Pause className={cn("fill-white", iconSize)} />
                                     :
-                                    <img
-                                        src="https://i.ibb.co/chY4zZLj/bot-o-de-play-central.png"
-                                        alt="Play"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
+                                    <Play className={cn("fill-white", iconSize)} />
                                 }
                             </Button>
                             </TooltipTrigger>
@@ -1154,12 +1146,11 @@ export default function VideoPlayer({
                              <Tooltip>
                                 <TooltipTrigger asChild>
                                 <Button onClick={toggleMute} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
-                                    <img
-                                        src="https://i.ibb.co/0VQwLNMw/botao-de-volume.png"
-                                        alt="Volume"
-                                        className={cn("object-contain", iconSize, (isMuted || volume === 0) && "opacity-50")}
-                                        draggable="false"
-                                    />
+                                    {(isMuted || volume === 0) ? (
+                                        <VolumeX className={cn(iconSize, "opacity-70")} />
+                                    ) : (
+                                        <Volume2 className={cn(iconSize)} />
+                                    )}
                                 </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Mutar (M)</TooltipContent>
@@ -1204,7 +1195,6 @@ export default function VideoPlayer({
                     {/* Right Controls */}
                     <div className="flex items-center gap-1.5 md:gap-2.5">
                         
-                        {/* --- CORREÇÃO: ADICIONAR BOTÃO DOWNLOAD --- */}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button 
@@ -1213,13 +1203,13 @@ export default function VideoPlayer({
                                     className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center"
                                     onClick={() => {
                                         if (rememberPositionKey) {
-                                            const parts = rememberPositionKey.split('-'); // ex: "tv-123-s1-e1-default" ou "movie-456-vidsrc"
+                                            const parts = rememberPositionKey.split('-');
                                             const mediaType = parts[0];
                                             const tmdbId = parts[1];
                                             let downloadPageUrl = '';
                                             if (mediaType === 'tv' && parts.length >= 5) {
-                                                const season = parts[2].substring(1); // Remove 's'
-                                                const episode = parts[3].substring(1); // Remove 'e'
+                                                const season = parts[2].substring(1);
+                                                const episode = parts[3].substring(1);
                                                 downloadPageUrl = `/download/series/${tmdbId}/${season}/${episode}`;
                                             } else if (mediaType === 'movie' && parts.length >= 3) {
                                                 downloadPageUrl = `/download/movies/${tmdbId}`;
@@ -1229,33 +1219,24 @@ export default function VideoPlayer({
                                                 window.open(downloadPageUrl, '_blank');
                                             } else {
                                                 console.error("Não foi possível determinar a URL de download a partir de:", rememberPositionKey);
-                                                // Você pode adicionar um toast de erro aqui se quiser
                                             }
                                         } else {
                                             console.error("Chave 'rememberPositionKey' não encontrada para gerar link de download.");
-                                            // Você pode adicionar um toast de erro aqui se quiser
                                         }
                                     }}
-                                    disabled={!rememberPositionKey} // Desabilita se não tiver a chave
+                                    disabled={!rememberPositionKey}
                                 >
-                                    {/* Ícone de Download SVG */}
-                                    <svg xmlns="http://www.w3.org/2000/svg" className={cn("object-contain", iconSize)} viewBox="0 0 24 24" fill="currentColor"><path d="M12 15.586l-4.293-4.293a1 1 0 0 0-1.414 1.414l5 5a1 1 0 0 0 1.414 0l5-5a1 1 0 0 0-1.414-1.414L12 15.586z"/><path d="M12 4a1 1 0 0 0-1 1v8.586l-2.293-2.293a1 1 0 0 0-1.414 1.414l4 4a1 1 0 0 0 1.414 0l4-4a1 1 0 0 0-1.414-1.414L13 13.586V5a1 1 0 0 0-1-1zM5 20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2a1 1 0 1 0-2 0v1H7v-1a1 1 0 1 0-2 0v2z"/></svg> 
+                                    <Download className={cn(iconSize)} /> 
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>Baixar</TooltipContent>
                         </Tooltip>
-                        {/* --- FIM DA CORREÇÃO --- */}
                         
                        {/* Chromecast (Placeholder) */}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center" disabled>
-                                    <img
-                                        src="https://i.ibb.co/2Yy4Pv04/bot-o-de-chromecast.png"
-                                        alt="Cast"
-                                        className={cn("object-contain opacity-50", iconSize)} // Dimmed
-                                        draggable="false"
-                                    />
+                                    <Cast className={cn("opacity-50", iconSize)} />
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>Chromecast (Indisponível)</TooltipContent>
@@ -1263,17 +1244,11 @@ export default function VideoPlayer({
 
                         {/* Settings */}
                         <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                            {/* ... (Conteúdo do Popover de Configurações) ... */}
                              <Tooltip>
                             <TooltipTrigger asChild>
                                 <PopoverTrigger asChild>
                                 <Button size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
-                                    <img
-                                        src="https://i.ibb.co/W4PKpLj1/botao-de-config.png"
-                                        alt="Configurações"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
+                                    <Settings className={cn("object-contain transition-transform duration-300", iconSize, isSettingsOpen && "rotate-90")} />
                                 </Button>
                                 </PopoverTrigger>
                             </TooltipTrigger>
@@ -1284,8 +1259,8 @@ export default function VideoPlayer({
                                 side="top"
                                 align="end"
                                 avoidCollisions
-                                container={containerRef.current}
-                                style={{ zIndex: 2147483647 }}
+                                container={containerRef.current} 
+                                style={{ zIndex: 2147483647 }} 
                              >
                                 {/* Popover Content */}
                                 {settingsMenu === 'main' && (
@@ -1360,12 +1335,7 @@ export default function VideoPlayer({
                              <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button onClick={togglePip} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
-                                <img
-                                    src="https://i.ibb.co/Jw0ndFSc/picture-in-picture.png"
-                                    alt="PiP"
-                                    className={cn("object-contain", iconSize, isPipActive && "opacity-70")}
-                                    draggable="false"
-                                />
+                                <PictureInPicture className={cn(iconSize, isPipActive && "opacity-70")} />
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>Picture-in-Picture (P)</TooltipContent>
@@ -1377,19 +1347,9 @@ export default function VideoPlayer({
                            <TooltipTrigger asChild>
                             <Button onClick={toggleFullscreen} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
                                 {isFullscreen ?
-                                    <img
-                                        src="https://i.ibb.co/bg2F2VFZ/sair-de-tela-cheia.png"
-                                        alt="Sair Tela Cheia"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
+                                    <Minimize className={cn(iconSize)} />
                                     :
-                                    <img
-                                        src="https://i.ibb.co/x8wjGChh/tela-cheia-bot-o.png"
-                                        alt="Tela Cheia"
-                                        className={cn("object-contain", iconSize)}
-                                        draggable="false"
-                                    />
+                                    <Maximize className={cn(iconSize)} />
                                 }
                             </Button>
                             </TooltipTrigger>

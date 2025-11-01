@@ -136,18 +136,51 @@ html:hover::-webkit-scrollbar-thumb {
   width: 100vw;
   height: 100vh;
 }
-/* Adicione no final do seu arquivo CSS global */
+
+/* --- INÍCIO DAS MODIFICAÇÕES --- */
 @layer components {
+  /* Animação de carregamento (substitui o GIF) */
+  .loading-bars {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100px;
+    height: 50px;
+  }
+  .loading-bar {
+    width: 10px;
+    height: 50px;
+    margin: 0 3px;
+    /* Cor ciano (como no vídeo) */
+    background-color: #00BFFF; 
+    animation: loading-bar-anim 1.2s infinite ease-in-out;
+  }
+  .loading-bar:nth-child(1) { animation-delay: -0.4s; }
+  .loading-bar:nth-child(2) { animation-delay: -0.3s; }
+  .loading-bar:nth-child(3) { animation-delay: -0.2s; }
+  .loading-bar:nth-child(4) { animation-delay: -0.1s; }
+  .loading-bar:nth-child(5) { animation-delay: 0s; }
+
+  @keyframes loading-bar-anim {
+    0%, 40%, 100% {
+      transform: scaleY(0.4);
+    }
+    20% {
+      transform: scaleY(1.0);
+    }
+  }
+
+  /* Spinner antigo (mantido caso seja usado em outro lugar) */
   .custom-spinner {
-    width: 48px; /* Ajuste o tamanho conforme necessário */
-    height: 48px;
+    width: 96px; 
+    height: 96px;
     border-radius: 50%;
     position: relative;
     animation: rotate 1s linear infinite;
-    border-top: 3px solid rgba(0, 191, 255, 0.2); /* Cor ciano clara */
-    border-right: 3px solid rgba(0, 191, 255, 0.2);
-    border-bottom: 3px solid rgba(0, 191, 255, 0.2);
-    border-left: 3px solid #00BFFF; /* Cor ciano principal */
+    border-top: 6px solid rgba(0, 191, 255, 0.2);
+    border-right: 6px solid rgba(0, 191, 255, 0.2);
+    border-bottom: 6px solid rgba(0, 191, 255, 0.2);
+    border-left: 6px solid #00BFFF;
   }
 
   @keyframes rotate {
@@ -156,10 +189,10 @@ html:hover::-webkit-scrollbar-thumb {
   }
 
   /* Estilos para a barra de progresso fina */
-  .thin-slider .group-hover\/progress\:h-1\.5 { height: 0.375rem !important; } /* Aumenta um pouco no hover */
+  .thin-slider .group-hover\/progress\:h-1\.5 { height: 0.375rem !important; }
   .thin-slider .h-1\.5 { height: 0.375rem !important; }
-  .thin-slider .h-1 { height: 0.25rem !important; } /* Altura normal */
-  .thin-slider .h-3 { height: 0.75rem !important; width: 0.75rem !important; } /* Thumb normal */
-  .thin-slider .group-hover\/progress\:h-3\.5 { height: 0.875rem !important; width: 0.875rem !important; } /* Thumb no hover */
-
+  .thin-slider .h-1 { height: 0.25rem !important; }
+  .thin-slider .h-3 { height: 0.75rem !important; width: 0.75rem !important; }
+  .thin-slider .group-hover\/progress\:h-3\.5 { height: 0.875rem !important; width: 0.875rem !important; }
 }
+/* --- FIM DAS MODIFICAÇÕES --- */

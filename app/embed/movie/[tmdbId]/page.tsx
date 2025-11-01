@@ -4,7 +4,8 @@
 import { useParams } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import ServerSelectorOverlay from '@/components/ServerSelectorClient';
+// --- MODIFICAÇÃO: Removido ServerSelectorOverlay ---
+// import ServerSelectorOverlay from '@/components/ServerSelectorClient';
 
 // Carrega os dois players dinamicamente
 const VideoPlayer = dynamic(() => import('@/components/video-player'), {
@@ -17,12 +18,19 @@ const IframePlayer = dynamic(() => import('@/components/iframe-player'), {
     ssr: false
 });
 
-// Componente de loading interno
+// --- MODIFICAÇÃO: Componente de loading atualizado para usar CSS ---
 const LoadingSpinner = () => (
     <main className="w-screen h-screen flex items-center justify-center bg-black">
-        <img src="https://i.ibb.co/fVcZxsvM/1020.gif" alt="Carregando..." className="w-64 h-64" />
+        <div className="loading-bars">
+            <div className="loading-bar"></div>
+            <div className="loading-bar"></div>
+            <div className="loading-bar"></div>
+            <div className="loading-bar"></div>
+            <div className="loading-bar"></div>
+        </div>
     </main>
 );
+// --- FIM DA MODIFICAÇÃO ---
 
 type Stream = {
   url: string;
@@ -37,51 +45,27 @@ type StreamInfo = {
   backdropPath: string | null;
 };
 
-type MediaInfo = {
-  title: string | null;
-  backdropPath: string | null;
-}
+// --- MODIFICAÇÃO: Removido tipo MediaInfo ---
 
 export default function MovieEmbedPage() {
   const params = useParams();
   const tmdbId = params.tmdbId as string;
   
-  const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
+  // --- MODIFICAÇÃO: Removido mediaInfo ---
   const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null);
-  const [serverType, setServerType] = useState<'default' | 'vidsrc' | null>(null);
+  // --- MODIFICAÇÃO: serverType definido como 'default' (Dublado) ---
+  const [serverType, setServerType] = useState<'default' | 'vidsrc' | null>('default');
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // Um único estado de loading
+  const [isLoading, setIsLoading] = useState(true); 
 
-  // 1. Efeito para buscar TÍTULO e BACKDROP (para o seletor)
-  useEffect(() => {
-    if (!tmdbId) return;
-    const fetchMediaInfo = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        // Busca a API (sem source) SÓ para pegar o título e backdrop
-        const res = await fetch(`/api/stream/movies/${tmdbId}`); 
-        if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.error || "Filme não encontrado.");
-        }
-        const data: StreamInfo = await res.json();
-        setMediaInfo({ title: data.title, backdropPath: data.backdropPath });
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setIsLoading(false); // Para de carregar (mostra o seletor)
-      }
-    };
-    fetchMediaInfo();
-  }, [tmdbId]);
+  // --- MODIFICAÇÃO: Removido o primeiro useEffect (de fetchMediaInfo) ---
 
-  // 2. Efeito para buscar os STREAMS (depois da seleção)
+  // --- MODIFICAÇÃO: Este é agora o único useEffect ---
   useEffect(() => {
     if (!tmdbId || !serverType) return; // Só roda se o serverType foi definido
 
     const fetchStreamData = async () => {
-      setIsLoading(true); // Mostra o GIF de novo
+      setIsLoading(true); 
       setError(null);
       try {
         const res = await fetch(`/api/stream/movies/${tmdbId}?source=${serverType}`);
@@ -93,7 +77,13 @@ export default function MovieEmbedPage() {
         if (data.streams && data.streams.length > 0 && data.streams[0].url) {
           setStreamInfo(data);
         } else {
-          setError("Nenhum link de streaming disponível para esta opção.");
+          // Tenta buscar o 'vidsrc' (legendado) se o 'default' (dublado) falhar
+          if (serverType === 'default') {
+            console.warn("Stream 'default' falhou ou vazio. Tentando 'vidsrc'...");
+            setServerType('vidsrc'); // Isso irá re-disparar este useEffect
+          } else {
+             setError("Nenhum link de streaming disponível (Dublado ou Legendado).");
+          }
         }
       } catch (err: any) {
         setError(err.message);
@@ -102,12 +92,9 @@ export default function MovieEmbedPage() {
       }
     };
     fetchStreamData();
-  }, [tmdbId, serverType]);
+  }, [tmdbId, serverType]); // Agora reage a serverType
 
-  // 3. Handler para o seletor
-  const handleServerSelect = (language: string) => {
-    setServerType(language === 'Dublado' ? 'default' : 'vidsrc');
-  };
+  // --- MODIFICAÇÃO: Removido handleServerSelect ---
 
   // --- LÓGICA DE RENDERIZAÇÃO ---
   if (isLoading) {
@@ -122,18 +109,7 @@ export default function MovieEmbedPage() {
     );
   }
 
-  // Mostrar seletor
-  if (mediaInfo && !serverType) {
-     return (
-        <main className="w-screen h-screen relative bg-black">
-            <ServerSelectorOverlay
-                title={mediaInfo.title}
-                backdropPath={mediaInfo.backdropPath}
-                onServerSelect={handleServerSelect}
-            />
-        </main>
-     );
-  }
+  // --- MODIFICAÇÃO: Removido o bloco de renderização do seletor ---
 
   // Mostrar o player correto
   if (streamInfo) {
@@ -154,7 +130,7 @@ export default function MovieEmbedPage() {
             <VideoPlayer
               sources={streamInfo.streams}
               title={streamInfo.title || 'Filme'}
-              backdropPath={streamInfo.backdropPath} // Passa o backdrop para o player customizado
+              backdropPath={streamInfo.backdropPath} 
               rememberPosition={true}
               rememberPositionKey={`movie-${tmdbId}-${serverType}`}
             />
