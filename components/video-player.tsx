@@ -123,31 +123,60 @@ export default function VideoPlayer({
 
    useEffect(() => {
     if (typeof window === 'undefined') {
-        setChecking(false);
-        return;
+      setChecking(false);
+      return;
     }
 
-    const adBlockerCheck = () => {
-        const bait = document.createElement('div');
-        bait.innerHTML = '&nbsp;';
-        bait.className = 'pub_300x250 pub_300x250m pub_728x90 text-ad text-ads text-ad-text ad-text ad-banner';
-        bait.setAttribute('aria-hidden', 'true');
-        bait.style.position = 'absolute';
-        bait.style.top = '-9999px';
-        bait.style.left = '-9999px';
-        bait.style.width = '1px';
-        bait.style.height = '1px';
-        document.body.appendChild(bait);
+    // 1. Criar o elemento "isca"
+    const bait = document.createElement('div');
+    bait.className = 'pub_300x250 pub_300x250m pub_728x90 text-ad text-ads text-ad-text ad-text ad-banner ad-wrapper';
+    bait.setAttribute('aria-hidden', 'true');
+    bait.style.position = 'absolute';
+    bait.style.top = '-9999px';
+    bait.style.left = '-9999px';
+    bait.style.width = '1px';
+    bait.style.height = '1px';
+    bait.style.pointerEvents = 'none';
 
-        requestAnimationFrame(() => {
-            if (bait.offsetHeight === 0 || window.getComputedStyle(bait).display === 'none' || window.getComputedStyle(bait).visibility === 'hidden') {
-                setAdBlockerDetected(true);
-            }
-            document.body.removeChild(bait);
-            setChecking(false);
-        });
+    // 2. Adicionar ao corpo
+    document.body.appendChild(bait);
+
+    // 3. Definir um timer curto para verificar
+    const checkTimer = setTimeout(() => {
+      let isAdBlockerActive = false;
+
+      // 4. Verificar se o adblock está ativo
+      if (!document.body.contains(bait)) {
+        isAdBlockerActive = true;
+      }
+      
+      if (!isAdBlockerActive && bait.offsetHeight === 0) {
+        isAdBlockerActive = true;
+      }
+
+      if (!isAdBlockerActive) {
+        const styles = window.getComputedStyle(bait);
+        if (styles.display === 'none' || styles.visibility === 'hidden') {
+          isAdBlockerActive = true;
+        }
+      }
+
+      // 5. Atualizar o estado
+      setAdBlockerDetected(isAdBlockerActive);
+      setChecking(false);
+
+      // 6. Limpar (dentro do timeout)
+      if (document.body.contains(bait)) {
+        document.body.removeChild(bait);
+      }
+    }, 150);
+
+    return () => {
+      clearTimeout(checkTimer);
+      if (document.body.contains(bait)) {
+        document.body.removeChild(bait);
+      }
     };
-    setTimeout(adBlockerCheck, 100);
   }, []);
 
   const triggerAd = useCallback(() => {
@@ -158,20 +187,15 @@ export default function VideoPlayer({
     return true;
   }, [adUrl]);
 
-  // --- INÍCIO DA MODIFICAÇÃO ---
-  // A função foi renomeada de 'triggerAdAndPause' para 'triggerAdOnFullscreen'
-  // A linha que pausa o vídeo foi removida.
   const triggerAdOnFullscreen = useCallback(() => {
     const adWindow = window.open(adUrl, "_blank");
     const adWasSuccessful = !!adWindow && !adWindow.closed && typeof adWindow.closed === 'boolean';
 
     if (adWasSuccessful) {
         lastFullscreenAdTimeRef.current = Date.now();
-        // A linha 'videoRef.current.pause()' foi removida daqui.
     }
     return adWasSuccessful;
   }, [adUrl]);
-  // --- FIM DA MODIFICAÇÃO ---
 
   const handleOverlayClick = () => {
     if (overlayClickCount === 0) {
@@ -511,10 +535,7 @@ export default function VideoPlayer({
         const shouldTriggerAd = !lastFullscreenAdTimeRef.current || (Date.now() - lastFullscreenAdTimeRef.current) > adInterval;
 
         if (shouldTriggerAd) {
-            // --- INÍCIO DA MODIFICAÇÃO ---
-            // Chamando a nova função 'triggerAdOnFullscreen'
             const adWasSuccessful = triggerAdOnFullscreen();
-            // --- FIM DA MODIFICAÇÃO ---
             if (!adWasSuccessful) {
                 console.warn("Popup ad might have been blocked on fullscreen attempt.");
             }
@@ -545,10 +566,7 @@ export default function VideoPlayer({
       console.error("Erro ao gerenciar fullscreen:", err);
     }
     resetControlsTimeout(); 
-    // --- INÍCIO DA MODIFICAÇÃO ---
-    // Atualizando a dependência do useCallback
   }, [adInterval, triggerAdOnFullscreen, resetControlsTimeout]); 
-  // --- FIM DA MODIFICAÇÃO ---
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -838,6 +856,8 @@ export default function VideoPlayer({
   const iconSize = "max-h-[20px] max-w-[20px] md:max-h-[22px] md:max-w-[22px]";
   const smallIconSize = "max-h-[16px] max-w-[16px] md:max-h-[18px] md:max-w-[18px]";
 
+  // --- LÓGICA DE RENDERIZAÇÃO PRINCIPAL ---
+
   if (checking) {
     return (
       <div className="w-full h-full bg-black flex items-center justify-center">
@@ -862,17 +882,25 @@ export default function VideoPlayer({
     );
   }
 
+  // --- MUDANÇA PRINCIPAL: BLOQUEAR SE ADBLOCK DETECTADO ---
   if (adBlockerDetected) {
     return (
        <div className="w-full h-full bg-black flex flex-col items-center justify-center text-center p-6 text-white">
         <AlertTriangle className="w-12 h-12 text-yellow-400 mb-4" />
         <h2 className="text-xl font-bold mb-2">AdBlock Detectado</h2>
-        <p className="max-w-md text-zinc-300">Detectamos um bloqueador de anúncios. Por favor, desative-o para este site para reproduzir o vídeo e nos ajudar a manter o serviço gratuito.</p>
+        <p className="max-w-md text-zinc-300">
+          Por favor, **desative o seu bloqueador de anúncios** (AdBlock) para este site para conseguir assistir ao conteúdo.
+        </p>
+        <p className="max-w-md text-zinc-400 text-sm mt-2">
+          Isso nos ajuda a manter o serviço gratuito. Após desativar, atualize a página.
+        </p>
       </div>
     );
   }
+  // --- FIM DA MUDANÇA ---
 
-  // INÍCIO DO RETORNO PRINCIPAL
+
+  // INÍCIO DO RETORNO DO PLAYER (SÓ RENDERIZA SE NÃO HOUVER ADBLOCK)
   return (
     <TooltipProvider delayDuration={150}>
       <div
