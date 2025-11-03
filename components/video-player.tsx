@@ -3,7 +3,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Play, Pause, RotateCcw, X, ChevronLeft, ChevronRight, Check, AlertTriangle, Volume2, VolumeX, Settings, Maximize, Minimize, PictureInPicture, Download, Cast } from 'lucide-react' 
-// import { motion, AnimatePresence } from 'framer-motion' // <--- OTIMIZAÇÃO: Removido Framer Motion
+import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover" 
@@ -23,8 +23,8 @@ type VideoPlayerProps = {
   sources: StreamSource[]
   title: string
   onClose?: () => void
-  rememberPositionKey?: string
-  rememberPosition?: boolean
+  rememberPositionKey?: string // Mantido para o botão de Download
+  rememberPosition?: boolean // Esta prop não será mais usada, mas mantida para evitar quebrar a tipagem
   hasNextEpisode?: boolean
   onNextEpisode?: () => void
   backdropPath?: string | null;
@@ -58,16 +58,14 @@ export default function VideoPlayer({
   title,
   onClose,
   rememberPositionKey,
-  rememberPosition = true,
+  rememberPosition = true, // Prop não é mais usada, mas mantida
   hasNextEpisode,
   onNextEpisode,
   backdropPath,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement & { webkitEnterFullscreen?: () => void }>(null)
-  const thumbnailVideoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null)
   const progressWrapRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const isMobile = useIsMobile() 
 
@@ -94,7 +92,7 @@ export default function VideoPlayer({
   const [hoverTime, setHoverTime] = useState<number | null>(null)
   const [showSeekHint, setShowSeekHint] = useState<null | { dir: "fwd" | "back"; by: number }>(null)
   const [showSpeedHint, setShowSpeedHint] = useState(false)
-  const [showContinueWatching, setShowContinueWatching] = useState(false)
+  // const [showContinueWatching, setShowContinueWatching] = useState(false) // <-- REMOVIDO
   const [isAutoplayEnabled, setIsAutoplayEnabled] = useState(true)
   const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(false)
   const [endingTriggered, setEndingTriggered] = useState(false);
@@ -105,7 +103,7 @@ export default function VideoPlayer({
   
   const volumeKey = "video-player-volume"
   const autoplayKey = "video-player-autoplay-enabled"
-  const positionKey = `video-pos:${rememberPositionKey || sources[0].url}`
+  // const positionKey = `video-pos:${rememberPositionKey || sources[0].url}` // <-- REMOVIDO
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const volumeSliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -115,11 +113,6 @@ export default function VideoPlayer({
   const spacebarDownTimer = useRef<NodeJS.Timeout | null>(null);
   const isSpeedingUpRef = useRef(false);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // --- OTIMIZAÇÃO: Refs para o loop de rAF e throttle
-  const animationFrameRef = useRef<number | null>(null);
-  const lastHoverMoveTimeRef = useRef<number>(0);
-  const HOVER_THROTTLE_MS = 100; // 10fps
 
   const adUrl = "https://otieu.com/4/10070814";
   const adInterval = 2 * 60 * 1000; 
@@ -257,29 +250,24 @@ export default function VideoPlayer({
 
      console.log(`[Player Effect] Player ATIVO. Definindo src: ${currentSource.url}.`);
      const savedTime = video.currentTime > 1 && video.src !== currentSource.url ? video.currentTime : 0;
-     video.src = currentSource.url;
-     video.load();
-
+     
      const handleCanPlayThrough = () => {
        console.log("[Player Effect] Vídeo pronto para tocar.");
        if (video && savedTime > 0 && video.currentTime < savedTime) { 
          console.log(`[Player Effect] Restaurando tempo para ${savedTime}`);
          video.currentTime = savedTime;
        }
+       // Este é o play "abençoado" pelo clique no overlay
        video?.play().catch(handleError); 
      };
+     
+     video.src = currentSource.url;
+     video.load();
      video.addEventListener('canplaythrough', handleCanPlayThrough, { once: true });
 
      setShowNextEpisodeOverlay(false);
      if (countdownIntervalRef.current) {
        clearInterval(countdownIntervalRef.current);
-     }
-
-     const thumbnailVideo = thumbnailVideoRef.current;
-     if(thumbnailVideo && currentSource.thumbnailUrl) {
-         thumbnailVideo.src = currentSource.thumbnailUrl;
-         thumbnailVideo.load();
-         // --- OTIMIZAÇÃO: Removido .play() daqui ---
      }
 
      return () => {
@@ -288,13 +276,8 @@ export default function VideoPlayer({
          video.removeAttribute('src');
          video.load();
        }
-       if(thumbnailVideo) {
-         thumbnailVideo.pause();
-         thumbnailVideo.removeAttribute('src');
-         thumbnailVideo.load();
-       }
      };
-   }, [currentSource, isPlayerActive]); 
+   }, [currentSource, isPlayerActive]);
 
 
   useEffect(() => {
@@ -311,29 +294,12 @@ export default function VideoPlayer({
         setIsAutoplayEnabled(JSON.parse(savedAutoplay));
       }
 
-      if (rememberPosition) {
-        const savedPos = localStorage.getItem(positionKey)
-        if (savedPos) {
-          const n = Number.parseFloat(savedPos)
-          if (!Number.isNaN(n) && n > 5) {
-            setShowContinueWatching(true)
-          }
-        }
-      }
-    } catch (e) { /* no-op */ }
-  }, [positionKey, rememberPosition])
+      // --- LÓGICA DE "CONTINUAR ASSISTINDO" REMOVIDA DAQUI ---
 
-  useEffect(() => {
-    if (!rememberPosition || !isPlayerActive) return
-    const id = setInterval(() => {
-      try {
-        if (videoRef.current && videoRef.current.currentTime > 0) {
-          localStorage.setItem(positionKey, String(videoRef.current.currentTime || 0))
-        }
-      } catch (e) { /* no-op */ }
-    }, 1500)
-    return () => clearInterval(id)
-  }, [positionKey, rememberPosition, isPlayerActive])
+    } catch (e) { /* no-op */ }
+  }, []) // Dependências removidas
+
+  // --- USEEFFECT DE SALVAR POSIÇÃO REMOVIDO ---
 
   useEffect(() => {
     setPipSupported(typeof document !== "undefined" && "pictureInPictureEnabled" in document)
@@ -386,18 +352,14 @@ export default function VideoPlayer({
     setIsLoading(true)
     setError(null)
   }
+
+  // --- handleCanPlay SIMPLIFICADO ---
   const handleCanPlay = () => {
     setIsLoading(false)
     setIsBuffering(false)
-    const v = videoRef.current;
-    if (v && showContinueWatching && rememberPosition) {
-        const savedPos = localStorage.getItem(positionKey)
-        const n = Number.parseFloat(savedPos || '0');
-        if (!Number.isNaN(n) && n > 5) {
-            v.currentTime = n;
-        }
-    }
+    // --- LÓGICA DE BUSCAR TEMPO SALVO REMOVIDA ---
   }
+  // --- FIM DA SIMPLIFICAÇÃO ---
 
   const handleError = () => {
     setIsLoading(false)
@@ -405,28 +367,15 @@ export default function VideoPlayer({
     setError("Não foi possível carregar o vídeo.")
   }
 
-  // --- OTIMIZAÇÃO: Loop de rAF para atualizar o progresso ---
-  const updateProgress = useCallback(() => {
-    if (!videoRef.current || !isPlaying) {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-      return;
-    }
-
-    const video = videoRef.current;
-    setCurrentTime(video.currentTime);
-
+  const handleTimeUpdate = () => {
+    if (!videoRef.current) return;
+    const { currentTime, duration } = videoRef.current;
+    setCurrentTime(currentTime);
     try {
-      const buf = video.buffered;
-      if (buf && buf.length > 0) {
-        setBufferedEnd(buf.end(buf.length - 1));
-      }
+      const buf = videoRef.current.buffered;
+      if (buf && buf.length > 0) { setBufferedEnd(buf.end(buf.length - 1)); }
     } catch {}
-
-    animationFrameRef.current = requestAnimationFrame(updateProgress);
-  }, [isPlaying]);
+  };
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return
@@ -434,13 +383,7 @@ export default function VideoPlayer({
   }
 
   const handleEnded = () => {
-    setIsPlaying(false);
-    // --- OTIMIZAÇÃO: Parar o loop de rAF ---
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
+    setIsPlaying(false); 
     if (!endingTriggered && isAutoplayEnabled && hasNextEpisode && onNextEpisode) {
       setEndingTriggered(true);
       setShowNextEpisodeOverlay(true);
@@ -458,7 +401,10 @@ export default function VideoPlayer({
     setEndingTriggered(false); 
   };
 
+  // --- togglePlay SIMPLIFICADO ---
   const togglePlay = useCallback(() => {
+    // --- CHECK DE "showContinueWatching" REMOVIDO ---
+    
     const v = videoRef.current;
     if (!v) return;
 
@@ -477,7 +423,7 @@ export default function VideoPlayer({
                 resetControlsTimeout(); 
             }).catch(error => {
                 if (error.name !== "AbortError") {
-                    console.warn("Play interrupted or failed, ignoring:", error);
+                    handleError(); // Agora podemos chamar handleError
                 }
             });
         }
@@ -485,32 +431,13 @@ export default function VideoPlayer({
         v.pause();
         if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); 
     }
-  }, [resetControlsTimeout]);
-
-  // --- OTIMIZAÇÃO: Handlers de Play/Pause para controlar o loop rAF ---
-  const handlePlay = () => {
-    setIsPlaying(true);
-    resetControlsTimeout();
-    if (!animationFrameRef.current) {
-      animationFrameRef.current = requestAnimationFrame(updateProgress);
-    }
-  };
-
-  const handlePause = () => {
-    setIsPlaying(false);
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-  };
+  }, [resetControlsTimeout]); // showContinueWatching removido das dependências
+  // --- FIM DA SIMPLIFICAÇÃO ---
 
   const seek = useCallback((amount: number) => {
     const v = videoRef.current
     if (!v) return
-    const newTime = Math.min(Math.max(0, v.currentTime + amount), duration || v.duration || 0);
-    v.currentTime = newTime;
-    setCurrentTime(newTime); // Atualiza o estado imediatamente para o slider
+    v.currentTime = Math.min(Math.max(0, v.currentTime + amount), duration || v.duration || 0)
     setShowSeekHint({ dir: amount > 0 ? "fwd" : "back", by: Math.abs(amount) })
     resetControlsTimeout(); 
     setTimeout(() => setShowSeekHint(null), 700)
@@ -519,9 +446,8 @@ export default function VideoPlayer({
   const handleSeekSlider = (value: number[]) => {
     const v = videoRef.current
     if (!v) return
-    const newTime = value[0];
-    v.currentTime = newTime;
-    setCurrentTime(newTime);
+    v.currentTime = value[0]
+    setCurrentTime(value[0])
     resetControlsTimeout(); 
   }
 
@@ -793,42 +719,15 @@ export default function VideoPlayer({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       if (spacebarDownTimer.current) clearTimeout(spacebarDownTimer.current);
-      // --- OTIMIZAÇÃO: Limpa o rAF loop ao desmontar ---
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
     };
   }, [isPlayerActive, volume, togglePlay, toggleFullscreen, toggleMute, togglePip, seek, isPlaying, resetControlsTimeout]); 
 
-  // --- OTIMIZAÇÃO: Throttle da pré-visualização ---
   const onProgressMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const now = Date.now();
-    if (now - lastHoverMoveTimeRef.current < HOVER_THROTTLE_MS) {
-      return; // Throttle
-    }
-    lastHoverMoveTimeRef.current = now;
-
     if (!duration || !progressWrapRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     const time = duration * pct;
     setHoverTime(time);
-
-    const video = thumbnailVideoRef.current;
-    const canvas = canvasRef.current;
-
-    if (video && canvas && video.readyState >= 3) { // video.readyState >= 3 (HAVE_FUTURE_DATA) is good.
-      video.currentTime = time; // This is the expensive part, but necessary.
-      requestAnimationFrame(() => {
-        const ctx = canvas.getContext('2d');
-        if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
-          const aspectRatio = video.videoWidth / video.videoHeight;
-          canvas.width = 144; 
-          canvas.height = 144 / aspectRatio;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        }
-      });
-    }
   };
 
   const onProgressLeave = () => {
@@ -883,20 +782,15 @@ export default function VideoPlayer({
     }
   }
 
-  const handleContinue = () => {
-    setShowContinueWatching(false)
-    if (videoRef.current) {
-      videoRef.current.play()
-    }
-  }
+  // --- handleContinue e handleRestart REMOVIDOS ---
 
-  const handleRestart = () => {
-    setShowContinueWatching(false)
-    if (videoRef.current) {
-      videoRef.current.currentTime = 0
-      videoRef.current.play()
-    }
+  // --- handleOnPlay SIMPLIFICADO ---
+  const handleOnPlay = () => {
+    setIsPlaying(true);
+    resetControlsTimeout(); 
+    // --- CHECK DE "showContinueWatching" REMOVIDO ---
   }
+  // --- FIM DA SIMPLIFICAÇÃO ---
 
   const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
@@ -938,7 +832,6 @@ export default function VideoPlayer({
     );
   }
 
-  // --- MUDANÇA PRINCIPAL: BLOQUEAR SE ADBLOCK DETECTADO ---
   if (adBlockerDetected) {
     return (
        <div className="w-full h-full bg-black flex flex-col items-center justify-center text-center p-6 text-white">
@@ -953,7 +846,6 @@ export default function VideoPlayer({
       </div>
     );
   }
-  // --- FIM DA MUDANÇA ---
 
 
   // INÍCIO DO RETORNO DO PLAYER (SÓ RENDERIZA SE NÃO HOUVER ADBLOCK)
@@ -982,29 +874,18 @@ export default function VideoPlayer({
             onPlaying={() => setIsBuffering(false)}
             onWaiting={() => setIsBuffering(true)}
             onError={handleError}
-            // onTimeUpdate={handleTimeUpdate} // <--- OTIMIZAÇÃO: Removido
+            onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
-            onPlay={handlePlay} // <--- OTIMIZAÇÃO: Adicionado
-            onPause={handlePause} // <--- OTIMIZAÇÃO: Adicionado
+            // --- Handlers de play/pause atualizados ---
+            onPlay={handleOnPlay} 
+            onPause={() => { setIsPlaying(false); if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); }} 
+            // --- FIM DA CORREÇÃO ---
             onEnded={handleEnded}
             preload="metadata"
             playsInline 
             webkit-playsinline="true" 
         />
-         {/* Thumbnail Video (Hidden) */}
-        {currentSource.thumbnailUrl && (
-            <video
-                ref={thumbnailVideoRef}
-                className="pointer-events-none absolute bottom-0 left-0 opacity-0 h-1 w-1" 
-                preload="auto"
-                muted
-                playsInline
-                webkit-playsinline="true"
-                // --- OTIMIZAÇÃO: Removido autoPlay e loop ---
-                crossOrigin="anonymous"
-            />
-        )}
-
+        
         {/* --- OVERLAYS --- */}
         
         {/* Loading/Buffering Spinner */}
@@ -1046,30 +927,19 @@ export default function VideoPlayer({
         </div>
         )}
 
-        {/* OTIMIZAÇÃO: Overlay inicial (sem framer motion) */}
-        <div className={cn("absolute inset-0 z-20 transition-opacity duration-300",
-            !isPlayerActive && !error ? "opacity-100" : "opacity-0 pointer-events-none"
-        )}>
+        {/* Overlay inicial (Mantém o backdrop aqui) */}
+        <AnimatePresence>
+        {!isPlayerActive && !error && (
             <PlayerOverlay
-                onClick={handleOverlayClick} 
-                title={title}
-                backdropPath={backdropPath}
+            onClick={handleOverlayClick} 
+            title={title}
+            backdropPath={backdropPath}
             />
-        </div>
-
-        {/* Continue Watching Overlay */}
-        {showContinueWatching && isPlayerActive && (
-        <div
-            style={{ transform: 'translateZ(0)' }}
-            className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70"
-        >
-            <p className="text-white text-lg mb-4">Continuar de onde parou?</p>
-            <div className="flex gap-4">
-            <Button onClick={handleContinue} className="bg-white text-black">Sim</Button>
-            <Button onClick={handleRestart} variant="secondary">Reiniciar</Button>
-            </div>
-        </div>
         )}
+        </AnimatePresence>
+
+        {/* --- OVERLAY "CONTINUAR ASSISTINDO" REMOVIDO DAQUI --- */}
+
 
         {/* Seek Hint Overlay */}
         {showSeekHint && isPlayerActive && (
@@ -1083,29 +953,37 @@ export default function VideoPlayer({
         </div>
         )}
 
-        {/* OTIMIZAÇÃO: Speed Hint Overlay (sem framer motion) */}
-        <div
+        {/* Speed Hint Overlay */}
+        <AnimatePresence>
+        {showSpeedHint && isPlayerActive && (
+            <motion.div
             style={{ transform: 'translateZ(0)' }}
-            className={cn(
-                "pointer-events-none absolute inset-0 z-10 flex items-center justify-center transition-opacity duration-150",
-                showSpeedHint ? "opacity-100" : "opacity-0"
-            )}
-        >
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+            >
             <div className="rounded-full bg-black/60 px-4 py-2 text-lg font-bold text-white ring-1 ring-white/10">
                 2x
             </div>
-        </div>
+            </motion.div>
+        )}
+        </AnimatePresence>
 
-        {/* OTIMIZAÇÃO: Next Episode Overlay (sem framer motion) */}
-        <div
+        {/* Next Episode Overlay */}
+        <AnimatePresence>
+        {showNextEpisodeOverlay && isPlayerActive && (
+            <motion.div
             style={{ transform: 'translateZ(0)' }}
-            className={cn(
-                "absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 transition-opacity duration-150",
-                showNextEpisodeOverlay ? "opacity-100" : "opacity-0 pointer-events-none"
-            )}
-        >
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 pointer-events-none" 
+            >
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white" />
-        </div>
+            </motion.div>
+        )}
+        </AnimatePresence>
 
         {/* Mobile tap zones */}
         <div className="absolute inset-0 z-[2] flex md:hidden">
@@ -1130,47 +1008,43 @@ export default function VideoPlayer({
         </div>
 
         {/* --- CONTROLES --- */}
-        {/* OTIMIZAÇÃO: Controles (sem framer motion) */}
+        <AnimatePresence>
         {isPlayerActive && (
-            <div
-                data-controls
-                style={{ transform: 'translateZ(0)' }}
-                className={cn(
-                    "absolute inset-x-0 bottom-0 z-10 px-2 pb-2 md:bottom-4 md:px-4 transition-all duration-200 ease-out",
-                    (showControls && !showNextEpisodeOverlay)
-                        ? "opacity-100 translate-y-0"
-                        : "opacity-0 translate-y-5 invisible pointer-events-none"
-                )}
-                onMouseEnter={() => {
-                    if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-                }}
-                onMouseLeave={() => {
-                    resetControlsTimeout();
-                }}
+            <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: showControls && !showNextEpisodeOverlay ? 1 : 0, y: showControls && !showNextEpisodeOverlay ? 0 : 20 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.2 }}
+            data-controls
+            style={{ transform: 'translateZ(0)' }}
+            className={cn(
+                "absolute inset-x-0 bottom-0 z-10 px-2 pb-2 md:bottom-4 md:px-4",
+                !(showControls && !showNextEpisodeOverlay) && "invisible pointer-events-none"
+            )}
+             onMouseEnter={() => {
+                if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+             }}
+             onMouseLeave={() => {
+                resetControlsTimeout();
+             }}
             >
                 {/* Progress Bar Container */}
                 <div
                     ref={progressWrapRef}
-                    onMouseMove={onProgressMouseMove} // Throttled
+                    onMouseMove={onProgressMouseMove}
                     onMouseLeave={onProgressLeave}
                     className="group/progress relative mb-1 cursor-pointer h-12"
                     style={{ zIndex: 1 }}
                 >
-                    {/* Thumbnail Preview */}
+                    {/* Time Preview (SÓ TEXTO) */}
                     <div
-                        className="absolute bottom-10 -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white text-xs ring-1 ring-white/10 overflow-hidden"
+                        className="absolute bottom-10 -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white text-xs ring-1 ring-white/10 px-2 py-1 rounded-md"
                         style={{
                         left: hoverLeft,
                         visibility: hoverTime !== null ? 'visible' : 'hidden',
                         }}
                     >
-                        {currentSource.thumbnailUrl && thumbnailVideoRef.current && (
-                            <canvas
-                                ref={canvasRef}
-                                className="block aspect-video w-52 bg-black"
-                            />
-                        )}
-                        <span className="block px-2 py-1">{formatTime(hoverTime ?? 0)}</span>
+                        <span className="block">{formatTime(hoverTime ?? 0)}</span>
                     </div>
 
                     {/* Slider */}
@@ -1228,28 +1102,28 @@ export default function VideoPlayer({
                                 </TooltipTrigger>
                                 <TooltipContent>Mutar (M)</TooltipContent>
                              </Tooltip>
-                            {/* OTIMIZAÇÃO: Removido AnimatePresence do slider de volume */}
-                            {isVolumeSliderVisible && ( 
-                                <div
-                                    className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-zinc-800 rounded-md px-3 py-2 shadow-lg transition-all duration-150"
-                                    // Estilos de animação simples (pode ajustar)
-                                    style={{
-                                      opacity: isVolumeSliderVisible ? 1 : 0,
-                                      transform: isVolumeSliderVisible ? 'translateX(0) scale(1)' : 'translateX(-10px) scale(0.9)',
-                                    }}
-                                >
-                                    <Slider
-                                        value={[volume]}
-                                        onValueChange={handleVolumeChange}
-                                        max={1}
-                                        step={0.01}
-                                        className="w-20 h-4 flex items-center cursor-pointer"
-                                        trackClassName="bg-white/30 h-1.5 w-full rounded-full"
-                                        rangeClassName="bg-white h-full rounded-full"
-                                        thumbClassName="h-3 w-3 bg-white border-white block"
-                                    />
-                                </div>
-                            )}
+                            <AnimatePresence>
+                                {isVolumeSliderVisible && ( 
+                                    <motion.div
+                                        initial={{ opacity: 0, x: -10, scale: 0.9 }} 
+                                        animate={{ opacity: 1, x: 0, scale: 1 }}
+                                        exit={{ opacity: 0, x: -10, scale: 0.9 }}
+                                        transition={{ duration: 0.15 }}
+                                        className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-zinc-800 rounded-md px-3 py-2 shadow-lg"
+                                    >
+                                        <Slider
+                                            value={[volume]}
+                                            onValueChange={handleVolumeChange}
+                                            max={1}
+                                            step={0.01}
+                                            className="w-20 h-4 flex items-center cursor-pointer"
+                                            trackClassName="bg-white/30 h-1.5 w-full rounded-full"
+                                            rangeClassName="bg-white h-full rounded-full"
+                                            thumbClassName="h-3 w-3 bg-white border-white block"
+                                        />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
 
                         {/* Time Display */}
@@ -1442,8 +1316,9 @@ export default function VideoPlayer({
                         )}
                     </div>
                 </div>
-            </div>
+            </motion.div>
         )}
+        </AnimatePresence>
       </div>
     </TooltipProvider>
   )

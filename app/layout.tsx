@@ -1,4 +1,3 @@
-// app/layout.tsx
 import type { Metadata } from "next"
 import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
@@ -22,7 +21,29 @@ export default function RootLayout({
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, orientation=portrait" />
         <meta name="google-site-verification" content="q5GnYgfSLz8RBSXp5gg13u_GOBloxYaSi8gSLA3QhPs" />
-        {/* --- SCRIPT ANTI-INSPEÇÃO REMOVIDO --- */}
+        <script src="https://cdn.jsdelivr.net/npm/disable-devtool@latest"></script>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                DisableDevtool({
+                  disableMenu: true,
+                  disableSelect: false,
+                  disableCopy: false,
+                  disableCut: true,
+                  disablePaste: false,
+                  clearLog: true,
+                  interval: 500,
+                  ondevtoolopen: function(type, next) {
+                    window.location.href = 'https://i.ibb.co/5hH6bbp2/tentando-inspecionar-o-site.png';
+                  }
+                });
+              } catch(e) {
+                console.warn('DisableDevtool failed to initialize');
+              }
+            `,
+          }}
+        />
         <style>{`
           html {
             font-family: ${GeistSans.style.fontFamily};
