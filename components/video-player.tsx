@@ -279,7 +279,7 @@ export default function VideoPlayer({
      if(thumbnailVideo && currentSource.thumbnailUrl) {
          thumbnailVideo.src = currentSource.thumbnailUrl;
          thumbnailVideo.load();
-         thumbnailVideo.play().catch(e => console.warn("Thumbnail play failed", e));
+         // --- OTIMIZAÇÃO: Removido .play() daqui ---
      }
 
      return () => {
@@ -817,8 +817,8 @@ export default function VideoPlayer({
     const video = thumbnailVideoRef.current;
     const canvas = canvasRef.current;
 
-    if (video && canvas && video.readyState >= 3) {
-      video.currentTime = time;
+    if (video && canvas && video.readyState >= 3) { // video.readyState >= 3 (HAVE_FUTURE_DATA) is good.
+      video.currentTime = time; // This is the expensive part, but necessary.
       requestAnimationFrame(() => {
         const ctx = canvas.getContext('2d');
         if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
@@ -1000,8 +1000,7 @@ export default function VideoPlayer({
                 muted
                 playsInline
                 webkit-playsinline="true"
-                autoPlay 
-                loop 
+                // --- OTIMIZAÇÃO: Removido autoPlay e loop ---
                 crossOrigin="anonymous"
             />
         )}
