@@ -30,6 +30,11 @@ type VideoPlayerProps = {
   backdropPath?: string | null;
 }
 
+// --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+// Lista de domínios que não verão anúncios
+const whitelistedHostnames = ["www.aicine.fun", "aicine.fun"];
+// --- FIM DA MODIFICAÇÃO DE WHITELIST ---
+
 // --- Componente de Overlay inicial ---
 const PlayerOverlay = ({ onClick, title, backdropPath }: { onClick: () => void; title: string; backdropPath: string | null }) => {
   const imageUrl = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : null;
@@ -69,6 +74,10 @@ export default function VideoPlayer({
 
   const isMobile = useIsMobile() 
 
+  // --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+  const [isWhitelisted, setIsWhitelisted] = useState(false);
+  // --- FIM DA MODIFICAÇÃO DE WHITELIST ---
+
   const [isSandboxed, setIsSandboxed] = useState(false);
   const [adBlockerDetected, setAdBlockerDetected] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -92,7 +101,6 @@ export default function VideoPlayer({
   const [hoverTime, setHoverTime] = useState<number | null>(null)
   const [showSeekHint, setShowSeekHint] = useState<null | { dir: "fwd" | "back"; by: number }>(null)
   const [showSpeedHint, setShowSpeedHint] = useState(false)
-  // const [showContinueWatching, setShowContinueWatching] = useState(false) // <-- REMOVIDO
   const [isAutoplayEnabled, setIsAutoplayEnabled] = useState(true)
   const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(false)
   const [endingTriggered, setEndingTriggered] = useState(false);
@@ -103,7 +111,6 @@ export default function VideoPlayer({
   
   const volumeKey = "video-player-volume"
   const autoplayKey = "video-player-autoplay-enabled"
-  // const positionKey = `video-pos:${rememberPositionKey || sources[0].url}` // <-- REMOVIDO
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const volumeSliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -120,6 +127,27 @@ export default function VideoPlayer({
   const lastFullscreenAdTimeRef = useRef<number | null>(null);
 
    useEffect(() => {
+    // --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+    // Verifica o referrer primeiro
+    try {
+      if (typeof window !== "undefined" && document.referrer) {
+        const referrerUrl = new URL(document.referrer);
+        const referrerHostname = referrerUrl.hostname;
+        
+        if (whitelistedHostnames.includes(referrerHostname)) {
+          setIsWhitelisted(true);
+          setOverlayClickCount(2); // Pula os cliques do anúncio
+          setChecking(false); // Pula a verificação de adblock
+          activatePlayer(); // Ativa o player diretamente
+          return; // Sai do useEffect
+        }
+      }
+    } catch (e) {
+      console.warn("Não foi possível verificar o referrer:", e);
+    }
+    // --- FIM DA MODIFICAÇÃO DE WHITELIST ---
+
+    // Se não estiver na whitelist, continua com a verificação de adblock
     if (typeof window === 'undefined') {
       setChecking(false);
       return;
@@ -175,17 +203,31 @@ export default function VideoPlayer({
         document.body.removeChild(bait);
       }
     };
-  }, []);
+  }, []); // Roda apenas uma vez
 
   const triggerAd = useCallback(() => {
+    // --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+    if (isWhitelisted) {
+      console.log("Ad skipped for whitelisted domain.");
+      return true; // Finge que o anúncio foi bem-sucedido
+    }
+    // --- FIM DA MODIFICAÇÃO DE WHITELIST ---
+
     const adWindow = window.open(adUrl, "_blank");
     if (!adWindow || adWindow.closed || typeof adWindow.closed === 'undefined') {
         return false; 
     }
     return true;
-  }, [adUrl]);
+  }, [adUrl, isWhitelisted]); // Adicionado isWhitelisted
 
   const triggerAdOnFullscreen = useCallback(() => {
+    // --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+    if (isWhitelisted) {
+      console.log("Fullscreen ad skipped for whitelisted domain.");
+      return true;
+    }
+    // --- FIM DA MODIFICAÇÃO DE WHITELIST ---
+
     const adWindow = window.open(adUrl, "_blank");
     const adWasSuccessful = !!adWindow && !adWindow.closed && typeof adWindow.closed === 'boolean';
 
@@ -193,9 +235,10 @@ export default function VideoPlayer({
         lastFullscreenAdTimeRef.current = Date.now();
     }
     return adWasSuccessful;
-  }, [adUrl]);
+  }, [adUrl, isWhitelisted]); // Adicionado isWhitelisted
 
   const handleOverlayClick = () => {
+    // A verificação do whitelist acontece no useEffect principal
     if (overlayClickCount === 0) {
       console.log("Primeiro clique no overlay, abrindo anúncio 1...");
       const ad1Success = triggerAd();
@@ -257,7 +300,7 @@ export default function VideoPlayer({
          console.log(`[Player Effect] Restaurando tempo para ${savedTime}`);
          video.currentTime = savedTime;
        }
-       // Este é o play "abençoado" pelo clique no overlay
+       // Este é o play "abençoado" pelo clique no overlay (ou whitelist)
        video?.play().catch(handleError); 
      };
      
@@ -293,13 +336,8 @@ export default function VideoPlayer({
       if (savedAutoplay !== null) {
         setIsAutoplayEnabled(JSON.parse(savedAutoplay));
       }
-
-      // --- LÓGICA DE "CONTINUAR ASSISTINDO" REMOVIDA DAQUI ---
-
     } catch (e) { /* no-op */ }
-  }, []) // Dependências removidas
-
-  // --- USEEFFECT DE SALVAR POSIÇÃO REMOVIDO ---
+  }, []) 
 
   useEffect(() => {
     setPipSupported(typeof document !== "undefined" && "pictureInPictureEnabled" in document)
@@ -353,13 +391,10 @@ export default function VideoPlayer({
     setError(null)
   }
 
-  // --- handleCanPlay SIMPLIFICADO ---
   const handleCanPlay = () => {
     setIsLoading(false)
     setIsBuffering(false)
-    // --- LÓGICA DE BUSCAR TEMPO SALVO REMOVIDA ---
   }
-  // --- FIM DA SIMPLIFICAÇÃO ---
 
   const handleError = () => {
     setIsLoading(false)
@@ -401,10 +436,7 @@ export default function VideoPlayer({
     setEndingTriggered(false); 
   };
 
-  // --- togglePlay SIMPLIFICADO ---
   const togglePlay = useCallback(() => {
-    // --- CHECK DE "showContinueWatching" REMOVIDO ---
-    
     const v = videoRef.current;
     if (!v) return;
 
@@ -423,7 +455,7 @@ export default function VideoPlayer({
                 resetControlsTimeout(); 
             }).catch(error => {
                 if (error.name !== "AbortError") {
-                    handleError(); // Agora podemos chamar handleError
+                    handleError();
                 }
             });
         }
@@ -431,8 +463,7 @@ export default function VideoPlayer({
         v.pause();
         if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); 
     }
-  }, [resetControlsTimeout]); // showContinueWatching removido das dependências
-  // --- FIM DA SIMPLIFICAÇÃO ---
+  }, [resetControlsTimeout]);
 
   const seek = useCallback((amount: number) => {
     const v = videoRef.current
@@ -503,14 +534,19 @@ export default function VideoPlayer({
     const isCurrentlyFullscreen = !!document.fullscreenElement;
 
     if (!isCurrentlyFullscreen) {
-        const shouldTriggerAd = !lastFullscreenAdTimeRef.current || (Date.now() - lastFullscreenAdTimeRef.current) > adInterval;
+        // --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+        // Só aciona o anúncio se NÃO estiver na whitelist
+        if (!isWhitelisted) {
+          const shouldTriggerAd = !lastFullscreenAdTimeRef.current || (Date.now() - lastFullscreenAdTimeRef.current) > adInterval;
 
-        if (shouldTriggerAd) {
-            const adWasSuccessful = triggerAdOnFullscreen();
-            if (!adWasSuccessful) {
-                console.warn("Popup ad might have been blocked on fullscreen attempt.");
-            }
+          if (shouldTriggerAd) {
+              const adWasSuccessful = triggerAdOnFullscreen();
+              if (!adWasSuccessful) {
+                  console.warn("Popup ad might have been blocked on fullscreen attempt.");
+              }
+          }
         }
+        // --- FIM DA MODIFICAÇÃO DE WHITELIST ---
     }
 
     const container = containerRef.current;
@@ -537,14 +573,17 @@ export default function VideoPlayer({
       console.error("Erro ao gerenciar fullscreen:", err);
     }
     resetControlsTimeout(); 
-  }, [adInterval, triggerAdOnFullscreen, resetControlsTimeout]); 
+  }, [adInterval, triggerAdOnFullscreen, resetControlsTimeout, isWhitelisted]); // Adicionado isWhitelisted
 
   useEffect(() => {
     const handleFullscreenChange = () => {
       const isCurrentlyFullscreen = !!document.fullscreenElement;
       setIsFullscreen(isCurrentlyFullscreen);
 
-      if (!isCurrentlyFullscreen && isPlayerActive) {
+      // --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+      // Só atualiza o tempo do último anúncio se NÃO estiver na whitelist
+      if (!isCurrentlyFullscreen && isPlayerActive && !isWhitelisted) {
+      // --- FIM DA MODIFICAÇÃO DE WHITELIST ---
         lastFullscreenAdTimeRef.current = Date.now();
       }
 
@@ -560,7 +599,7 @@ export default function VideoPlayer({
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, [isPlayerActive]); 
+  }, [isPlayerActive, isWhitelisted]); // Adicionado isWhitelisted
 
   const changePlaybackRate = (rate: number) => {
     if (!videoRef.current) return
@@ -742,7 +781,6 @@ export default function VideoPlayer({
     if (isDoubleTap) {
         if (side === 'left') seek(-10);
         else if (side === 'right') seek(10);
-        // else togglePlay(); // Removido
         lastTapRef.current = { time: 0, side: 'center' };
     } else {
         if(side === 'center') {
@@ -782,15 +820,10 @@ export default function VideoPlayer({
     }
   }
 
-  // --- handleContinue e handleRestart REMOVIDOS ---
-
-  // --- handleOnPlay SIMPLIFICADO ---
   const handleOnPlay = () => {
     setIsPlaying(true);
     resetControlsTimeout(); 
-    // --- CHECK DE "showContinueWatching" REMOVIDO ---
   }
-  // --- FIM DA SIMPLIFICAÇÃO ---
 
   const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
@@ -876,10 +909,8 @@ export default function VideoPlayer({
             onError={handleError}
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
-            // --- Handlers de play/pause atualizados ---
             onPlay={handleOnPlay} 
             onPause={() => { setIsPlaying(false); if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); }} 
-            // --- FIM DA CORREÇÃO ---
             onEnded={handleEnded}
             preload="metadata"
             playsInline 
@@ -937,9 +968,6 @@ export default function VideoPlayer({
             />
         )}
         </AnimatePresence>
-
-        {/* --- OVERLAY "CONTINUAR ASSISTINDO" REMOVIDO DAQUI --- */}
-
 
         {/* Seek Hint Overlay */}
         {showSeekHint && isPlayerActive && (

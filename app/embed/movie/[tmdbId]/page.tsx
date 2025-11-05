@@ -43,6 +43,11 @@ type StreamInfo = {
   backdropPath: string | null;
 };
 
+// --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+// Lista de domínios que não verão anúncios
+const whitelistedHostnames = ["www.aicine.fun", "aicine.fun"];
+// --- FIM DA MODIFICAÇÃO DE WHITELIST ---
+
 export default function MovieEmbedPage() {
   const params = useParams();
   const tmdbId = params.tmdbId as string;
@@ -56,6 +61,28 @@ export default function MovieEmbedPage() {
   const [adClickCount, setAdClickCount] = useState(0);
   const adUrl = "https://otieu.com/4/10070814"; // URL do anúncio
   // --- FIM DA MODIFICAÇÃO DE ANÚNCIO ---
+
+  // --- INÍCIO DA MODIFICAÇÃO DE WHITELIST ---
+  const [isWhitelisted, setIsWhitelisted] = useState(false);
+
+  useEffect(() => {
+    // Verifica o domínio que está incorporando este iframe
+    try {
+      if (typeof window !== "undefined" && document.referrer) {
+        const referrerUrl = new URL(document.referrer);
+        const referrerHostname = referrerUrl.hostname;
+        
+        if (whitelistedHostnames.includes(referrerHostname)) {
+          setIsWhitelisted(true);
+          // Pula os cliques do anúncio se o domínio estiver na lista
+          setAdClickCount(2); 
+        }
+      }
+    } catch (e) {
+      console.warn("Não foi possível verificar o referrer:", e);
+    }
+  }, []);
+  // --- FIM DA MODIFICAÇÃO DE WHITELIST ---
 
   useEffect(() => {
     if (!tmdbId || !serverType) return; 
@@ -91,6 +118,7 @@ export default function MovieEmbedPage() {
 
   // --- INÍCIO DA MODIFICAÇÃO DE ANÚNCIO ---
   const triggerAd = () => {
+    // A verificação do whitelist já acontece no AdGateOverlay
     const adWindow = window.open(adUrl, "_blank");
     if (!adWindow || adWindow.closed || typeof adWindow.closed === 'undefined') {
       console.warn("Popup ad might have been blocked.");
@@ -99,6 +127,8 @@ export default function MovieEmbedPage() {
 
   const AdGateOverlay = () => {
     const handleClick = () => {
+      // A verificação do whitelist acontece no useEffect principal,
+      // que define adClickCount para 2 se estiver na lista.
       if (adClickCount === 0) {
         triggerAd();
         setAdClickCount(1);
