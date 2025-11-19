@@ -1098,7 +1098,7 @@ export default function VideoPlayer({
                 {/* Solid Dark Gray Control Bar */}
                 <div className="bg-zinc-800 rounded-md md:rounded-lg px-2 py-2 md:px-3 md:py-2.5 flex items-center justify-between relative" style={{ zIndex: 0 }}>
                     {/* Left Controls */}
-                    <div className="flex items-center gap-1.5 md:gap-2.5">
+                    <div className="flex items-center gap-1 md:gap-2.5">
                          <Tooltip>
                             <TooltipTrigger asChild>
                             <Button onClick={togglePlay} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
@@ -1112,9 +1112,9 @@ export default function VideoPlayer({
                             <TooltipContent>{isPlaying ? "Pausar (K)" : "Play (K)"}</TooltipContent>
                         </Tooltip>
 
-                         {/* Volume Control Group - Horizontal */}
+                         {/* Volume Control Group - Horizontal (HIDDEN ON MOBILE) */}
                         <div
-                            className="relative flex items-center"
+                            className="relative items-center hidden md:flex"
                             onMouseEnter={handleVolumeAreaMouseEnter}
                             onMouseLeave={handleVolumeAreaMouseLeave}
                         >
@@ -1155,7 +1155,7 @@ export default function VideoPlayer({
                         </div>
 
                         {/* Time Display */}
-                        <div className="flex select-none justify-between text-xs md:text-sm text-white/90 items-center gap-1 ml-1 md:ml-2">
+                        <div className="flex select-none justify-between text-[10px] md:text-sm text-white/90 items-center gap-1 ml-1 md:ml-2">
                             <span>{formatTime(currentTime)}</span>
                             <span className="opacity-70">/</span>
                             <span>{formatTime(duration)}</span>
@@ -1168,7 +1168,7 @@ export default function VideoPlayer({
                     </div>
 
                     {/* Right Controls */}
-                    <div className="flex items-center gap-1.5 md:gap-2.5">
+                    <div className="flex items-center gap-1 md:gap-2.5">
                         
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -1207,10 +1207,10 @@ export default function VideoPlayer({
                             <TooltipContent>Baixar</TooltipContent>
                         </Tooltip>
                         
-                       {/* Chromecast (Placeholder) */}
+                       {/* Chromecast (Placeholder - Hidden on mobile) */}
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center" disabled>
+                                <Button size="icon" variant="ghost" className="hidden md:flex h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 items-center justify-center" disabled>
                                     <Cast className={cn("opacity-50", iconSize)} />
                                 </Button>
                             </TooltipTrigger>
@@ -1305,11 +1305,11 @@ export default function VideoPlayer({
                             </PopoverContent>
                         </Popover>
 
-                        {/* PiP */}
+                        {/* PiP (Hidden on Mobile) */}
                         {pipSupported && (
                              <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button onClick={togglePip} size="icon" variant="ghost" className="h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 flex items-center justify-center">
+                                <Button onClick={togglePip} size="icon" variant="ghost" className="hidden md:flex h-9 w-9 md:h-10 md:w-10 text-white hover:bg-white/10 items-center justify-center">
                                 <PictureInPicture className={cn(iconSize, isPipActive && "opacity-70")} />
                                 </Button>
                             </TooltipTrigger>
